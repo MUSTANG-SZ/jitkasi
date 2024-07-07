@@ -1,0 +1,37 @@
+[build-system]
+requires = ["setuptools"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name="jitkasi"
+version="0.0.0"
+authors= [
+{name ="Saianeesh Keshav Haridas"},
+]
+description = "Maximum likelihood mapmaker using JAX"
+readme = "README.md"
+requires-python = ">=3.8"
+keywords = ["mapmaking", "CMB", "MUSTANG2", "jax", "minkasi"]
+license = {text = "GPLv3"}
+classifiers = [ "Programming Language :: Python" ]
+dependencies = ["numpy", "astropy", "jax", "jaxlib"]
+
+[project.optional-dependencies]
+docs = [
+    "mkdocs",
+    "mkdocs-material",
+    "mkdocstrings[python]",
+    "mkdocs-gen-files",
+    "mkdocs-literate-nav",
+    "mkdocs-homepage-copier",
+]
+
+[tool.setuptools]
+packages=["jitkasi"]
+
+[tool.commitizen]
+name = "cz_conventional_commits"
+tag_format = "$version"
+version_scheme = "semver"
+version_provider = "pep621"
+update_changelog_on_bump = true
