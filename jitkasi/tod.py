@@ -1,11 +1,14 @@
 from copy import copy, deepcopy
 from dataclasses import dataclass
+from functools import cached_property
 from typing import Iterable, Optional
 
 import jax.numpy as jnp
 from jax import Array
 from jax.tree_util import register_pytree_node_class
 from typing_extensions import Self
+
+from . import noise as n
 
 
 @register_pytree_node_class
@@ -47,17 +50,15 @@ class TOD:
     data: Array
     x: Array
     y: Array
-    noise: Optional["NoiseModel"] = (
-        None  # TODO: Once NoiseModel is implement should be Optional[NoiseModel]
-    )
+    noise: Optional[n.NoiseModel] = None
     meta: dict = {}
 
     def __post_init__(self):
         # Check that all sizes are the same
-        shapes = [data.shape, x.shape, y.shape]
+        shapes = [self.data.shape, self.x.shape, self.y.shape]
         if not (
             all(s[0] == shapes[0][0] for s in shapes)
-            and all(s[1] == shapes[0][1] for s in shape)
+            and all(s[1] == shapes[0][1] for s in shapes)
         ):
             raise ValueError(
                 f"Expected 'data', 'x', and 'y' to have the same shape but got {shapes}."
@@ -98,6 +99,22 @@ class TOD:
             float(jnp.max(self.y)),
         )
 
+    @cached_property
+    def data_filt(self) -> Array:
+        """
+        Get a copy of the data with the noise model applied.
+        This is essentially $N^{-1}d$
+
+        Returns
+        -------
+        data_filt : Array
+            The filtered data.
+            If `self.noise` is None then this is just a copy of `self.data`.
+        """
+        if self.noise is None:
+            return jnp.copy(self.data)
+        return self.noise.apply_noise(self.data)
+
     def copy(self, deep: bool = False) -> Self:
         """
         Return of copy of the TOD.
@@ -117,6 +134,25 @@ class TOD:
         if deep:
             return deepcopy(self)
         return copy(self)
+
+    def compute_noise(self, noise_class: n.NoiseModel, *args, **kwargs):
+        """
+        Compute and set the noise model for this TOD.
+        This uses `noise_class.compute(dat=self.data...` to compute the noise.
+        Also resets the cache on `data_filt`.
+
+        Parameters
+        ----------
+        noise_class : NoiseModel
+            The class to use as the noise model.
+            Nominally a class from `jitkasi.noise`.
+        *args
+            Additional arguments to pass to `noise_class.compute`.
+        *kwargs
+            Additional keyword arguments to pass to `noise_class.compute`.
+        """
+        self.__dict__.pop("data_filt", None)
+        self.noise = noise_class.compute(self.data, *args, **kwargs)
 
     # Functions for making this a pytree
     # Don't call this on your own
