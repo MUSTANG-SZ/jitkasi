@@ -1,7 +1,7 @@
 from copy import copy, deepcopy
 from dataclasses import dataclass
 from functools import cached_property
-from typing import Iterable, Optional
+from typing import Iterator, Optional
 
 import jax.numpy as jnp
 from jax import Array
@@ -167,6 +167,7 @@ class TOD:
         return cls(*children, *aux_data)
 
 
+@register_pytree_node_class
 @dataclass
 class TODVec:
     """
@@ -178,7 +179,7 @@ class TODVec:
     ----------
     tods : list[TOD]
         The TODs that belong to this TODVec.
-        This is accessible via  `__getitem__` and `__setitem__`.
+        Indexing and interating the TODVec operates on this.
     """
 
     tods: list[TOD] = []
@@ -244,7 +245,7 @@ class TODVec:
             raise TypeError("TODVec is indexed by ints")
         del self.tods[key]
 
-    def __iter__(self) -> Iterable[TOD]:
+    def __iter__(self) -> Iterator[TOD]:
         return self.tods.__iter__()
 
     def __add__(self, other: Self) -> Self:
@@ -280,3 +281,15 @@ class TODVec:
             raise TypeError("TODVec can only store instances of TOD")
 
         self.tods.append(value)
+
+    # Functions for making this a pytree
+    # Don't call this on your own
+    def tree_flatten(self) -> tuple[tuple, None]:
+        children = tuple(self.tods)
+        aux_data = None
+
+        return (children, aux_data)
+
+    @classmethod
+    def tree_unflatten(cls, aux_data, children) -> Self:
+        return cls(list(children))
