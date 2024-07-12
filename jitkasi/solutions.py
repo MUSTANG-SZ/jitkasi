@@ -3,6 +3,7 @@ from dataclasses import dataclass, field
 from typing import Iterator, Optional
 
 import jax.numpy as jnp
+import numpy as np
 from astropy.wcs import WCS
 from jax import Array, jit
 from jax.tree_util import register_pytree_node_class
@@ -200,6 +201,57 @@ class WCSMap(Solution):
                 )
         return wcsmap_out
 
+    @classmethod
+    def empty(
+        cls,
+        wcs: WCS,
+        lims: tuple[float, float, float, float],
+        pad=0,
+        square=False,
+        *args,
+    ) -> Self:
+        """
+        Initialize an empty map.
+
+        Parameters
+        ----------
+        wcs : WCS
+            The WCS kernel to use for this map.
+        lims : tuple[float, float, float, float]
+            The limits of the map in radians.
+            Should be (RA low, RA high, Dec low, Dec high).
+        pad : int, default: 0
+            Number of pixels to pad the map by.
+        square : bool, default: False
+            If True make the map square.
+        *args
+            Arguments other than `data` and `wcs` for the `WCSMap` constructor.
+        """
+        corners = np.zeros([4, 2])
+        corners[0, :] = [lims[0], lims[2]]
+        corners[1, :] = [lims[0], lims[3]]
+        corners[2, :] = [lims[1], lims[2]]
+        corners[3, :] = [lims[1], lims[3]]
+
+        pix_corners = np.array(wcs.wcs_world2pix(corners * 180 / jnp.pi, 1))
+        pix_corners = np.round(pix_corners)
+
+        if pix_corners.min() < -0.5:
+            print(
+                "corners seem to have gone negative in SkyMap projection.  not good, you may want to check this."
+            )
+        nx = pix_corners[:, 0].max() + pad
+        ny = pix_corners[:, 1].max() + pad
+
+        if square:
+            if nx > ny:
+                ny = nx
+            else:
+                nx = ny
+        data = jnp.zeros((nx, ny))
+
+        return cls(data, wcs, *args)
+
     # Math functions
     @jit
     def __add__(self, other: Self) -> Self:
@@ -322,7 +374,7 @@ class SolutionSet:
         ----------
         todvec : TODVec
             TODVec containing TODs to project from.
-        use_filt : bool, defauls: True
+        use_filt : bool, default: True
             If True use data_filt instead of data.
 
         Returns
