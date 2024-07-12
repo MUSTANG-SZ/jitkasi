@@ -1,3 +1,10 @@
+## 0.4.0 (2024-07-12)
+
+### Feat
+
+- add function to generate empty map
+- add functions to compute lhs and rhs of the mapmaker eq
+
 ## 0.3.0 (2024-07-11)
 
 ### Feat
