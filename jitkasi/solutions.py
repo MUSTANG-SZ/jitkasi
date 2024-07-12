@@ -337,6 +337,49 @@ class SolutionSet:
             solutionset_out[i] = solution.from_tods(todvec, use_filt)
         return solutionset_out
 
+    @jit
+    def make_lhs(self, todvec: TODVec) -> Self:
+        """
+        Make the left hand side of the map maker equation: $P^{T}N^{-1}Pm$.
+        To do this we project the Solutions into TODs, apply the noise model,
+        and project back to Solutions.
+
+        Parameters
+        ----------
+        todvec : TODVec
+            TODVec containing TODs to project into and from.
+            Only used for pointing and shape information,
+            not modified in place.
+
+        Returns
+        -------
+        lhs : SolutionSet
+            A SolutionSet for the left hand side of the map maker equation.
+        """
+        projected = self.to_tods(todvec)
+        lhs = self.from_tods(projected, True)
+        return lhs
+
+    @jit
+    def make_rhs(self, todvec: TODVec) -> Self:
+        """
+        Make the right hand side of the map maker equation: $P^{T}N^{-1}d$.
+        To do this we apply the noise model to some TODs and project into Solutions.
+
+        Parameters
+        ----------
+        todvec : TODVec
+            TODVec containing TODs to project from.
+            This is not modified in place.
+
+        Returns
+        -------
+        rhs : SolutionSet
+            A SolutionSet for the right hand side of the map maker equation.
+        """
+        rhs = self.from_tods(todvec, True)
+        return rhs
+
     # Math functions
     def __add__(self, other: Self) -> Self:
         if len(self.solutions) != other.solutions:
