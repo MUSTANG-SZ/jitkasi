@@ -71,7 +71,7 @@ class TOD:
 
         Returns
         -------
-        shape : tupe[int, ....]
+        shape : tuple[int, ....]
             The shape of the TOD.
         """
         return self.data.shape
@@ -183,6 +183,14 @@ class TODVec:
     """
 
     tods: list[TOD] = []
+
+    @property
+    @jax.jit
+    def nsamp(self) -> int:
+        nsamp = 0
+        for tod in self.tods:
+            nsamp += int(jnp.product(jnp.array(tod.shape), axis=None))
+        return nsamp
 
     @property
     def lims(self) -> tuple[float, float, float, float]:
