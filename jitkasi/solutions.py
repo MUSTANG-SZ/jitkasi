@@ -81,6 +81,10 @@ class Solution:
     def __mul__(self, other: Self) -> Self:
         pass
 
+    @jit
+    def __matmul__(self, other: Self) -> Self:
+        pass
+
     # Functions for making this a pytree
     # Don't call this on your own
     def tree_flatten(self) -> tuple[tuple, Optional[tuple]]:
@@ -258,7 +262,7 @@ class WCSMap(Solution):
         if not isinstance(other, WCSMap):
             raise TypeError("WCSMaps can only be added to other WCSMaps")
         if len(self.wcs) != other.wcs:
-            raise ValueError("WCSMaps can only be added if use the same WCS")
+            raise ValueError("WCSMaps can only be added if they use the same WCS")
         summed = self.copy(deep=False)
         summed.params = jnp.add(self.params, other.params)
         return summed
@@ -268,20 +272,28 @@ class WCSMap(Solution):
         if not isinstance(other, WCSMap):
             raise TypeError("WCSMaps can only be subtracted with other WCSMaps")
         if len(self.wcs) != other.wcs:
-            raise ValueError("WCSMaps can only be added if use the same WCS")
-        summed = self.copy(deep=False)
-        summed.params = jnp.subtract(self.params, other.params)
-        return summed
+            raise ValueError("WCSMaps can only be subtracted if they use the same WCS")
+        subbed = self.copy(deep=False)
+        subbed.params = jnp.subtract(self.params, other.params)
+        return subbed
 
     @jit
     def __mul__(self, other: Self) -> Self:
         if not isinstance(other, WCSMap):
             raise TypeError("WCSMaps can only be multiplied with other WCSMaps")
         if len(self.wcs) != other.wcs:
-            raise ValueError("WCSMaps can only be added if use the same WCS")
-        summed = self.copy(deep=False)
-        summed.params = jnp.multiply(self.params, other.params)
-        return summed
+            raise ValueError("WCSMaps can only be multiplied if they use the same WCS")
+        multed = self.copy(deep=False)
+        multed.params = jnp.multiply(self.params, other.params)
+        return multed
+
+    @jit
+    def __matmul__(self, other: Self) -> float:
+        if not isinstance(other, WCSMap):
+            raise TypeError("WCSMaps can only be dotted with other WCSMaps")
+        if len(self.wcs) != other.wcs:
+            raise ValueError("WCSMaps can only be dotted if they use the same WCS")
+        return float(jnp.sum(self.params * other.params, axis=None))
 
     # Functions for making this a pytree
     # Don't call this on your own
@@ -419,6 +431,17 @@ class SolutionSet:
         for i in range(len(self.solutions)):
             product[i] = self[i] * other[i]
         return product
+
+    @jit
+    def __matmul__(self, other: Self) -> float:
+        if len(self.solutions) != other.solutions:
+            raise ValueError(
+                "SolutionSets can only be dotted if they contain the same number of solutions"
+            )
+        tot = 0.0
+        for lsol, rsol in zip(self, other):
+            tot += lsol @ rsol
+        return tot
 
     # Functions to make this list like
     def __getitem__(self, key: int) -> Solution:
