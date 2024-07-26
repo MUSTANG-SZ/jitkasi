@@ -70,20 +70,78 @@ class Solution:
 
     # Math functions
     @jit
-    def __add__(self, other: Self) -> Self:
+    def __iadd__(self, other: Self | float) -> Self:
         pass
 
-    @jit
-    def __sub__(self, other: Self) -> Self:
-        pass
+    def __add__(self, other: Self | float) -> Self:
+        to_ret = self.copy(deep=True)
+        to_ret += other
+        return to_ret
+
+    def __radd__(self, other: Self | float) -> Self:
+        if isinstance(other, float):
+            to_ret = self.copy(deep=True)
+            to_ret += other
+        elif isinstance(other, type(self)):
+            to_ret = other.copy(deep=True)
+            to_ret += self
+        else:
+            raise ValueError(f"Can't add {type(other)} and {type(self)}")
+        return to_ret
 
     @jit
-    def __mul__(self, other: Self) -> Self:
+    def __isub__(self, other: Self | float) -> Self:
         pass
 
+    def __sub__(self, other: Self | float) -> Self:
+        to_ret = self.copy(deep=True)
+        to_ret -= other
+        return to_ret
+
+    def __rsub__(self, other: Self | float) -> Self:
+        if isinstance(other, float):
+            to_ret = self.copy(deep=True)
+            to_ret -= other
+        elif isinstance(other, type(self)):
+            to_ret = other.copy(deep=True)
+            to_ret -= self
+        else:
+            raise ValueError(f"Can't subtract {type(other)} and {type(self)}")
+        return to_ret
+
     @jit
+    def __imul__(self, other: Self | float) -> Self:
+        pass
+
+    def __mul__(self, other: Self | float) -> Self:
+        to_ret = self.copy(deep=True)
+        to_ret *= other
+        return to_ret
+
+    def __rmul__(self, other: Self | float) -> Self:
+        if isinstance(other, float):
+            to_ret = self.copy(deep=True)
+            to_ret *= other
+        elif isinstance(other, type(self)):
+            to_ret = other.copy(deep=True)
+            to_ret *= self
+        else:
+            raise ValueError(f"Can't multiply {type(other)} and {type(self)}")
+        return to_ret
+
+    @jit
+    def __imatmul__(self, other: Self) -> Self:
+        pass
+
     def __matmul__(self, other: Self) -> Self:
-        pass
+        to_ret = self.copy(deep=True)
+        to_ret @= other
+        return to_ret
+
+    def __rmatmul__(self, other: Self) -> Self:
+        to_ret = other.copy(deep=True)
+        to_ret @= self
+        return to_ret
 
     # Functions for making this a pytree
     # Don't call this on your own
@@ -258,37 +316,54 @@ class WCSMap(Solution):
 
     # Math functions
     @jit
-    def __add__(self, other: Self) -> Self:
-        if not isinstance(other, WCSMap):
-            raise TypeError("WCSMaps can only be added to other WCSMaps")
-        if len(self.wcs) != other.wcs:
-            raise ValueError("WCSMaps can only be added if they use the same WCS")
-        summed = self.copy(deep=False)
-        summed.params = jnp.add(self.params, other.params)
-        return summed
+    def __iadd__(self, other: Self | float) -> Self:
+        if isinstance(other, WCSMap):
+            if len(self.wcs) != other.wcs:
+                raise ValueError("WCSMaps can only be added if they use the same WCS")
+            to_add = other.params
+        elif isinstance(other, float):
+            to_add = other
+        else:
+            raise TypeError("WCSMaps can only be added to other WCSMaps or floats")
+        self.params = self.params.at[:].add(-1.0 * to_add)
+        return self
 
     @jit
-    def __sub__(self, other: Self) -> Self:
-        if not isinstance(other, WCSMap):
-            raise TypeError("WCSMaps can only be subtracted with other WCSMaps")
-        if len(self.wcs) != other.wcs:
-            raise ValueError("WCSMaps can only be subtracted if they use the same WCS")
-        subbed = self.copy(deep=False)
-        subbed.params = jnp.subtract(self.params, other.params)
-        return subbed
+    def __isub__(self, other: Self) -> Self:
+        if isinstance(other, WCSMap):
+            if len(self.wcs) != other.wcs:
+                raise ValueError(
+                    "WCSMaps can only be subtracted if they use the same WCS"
+                )
+            to_sub = other.params
+        elif isinstance(other, float):
+            to_sub = other
+        else:
+            raise TypeError(
+                "WCSMaps can only be subtracted with other WCSMaps or floats"
+            )
+        self.params = self.params.at[:].add(-1.0 * to_sub)
+        return self
 
     @jit
-    def __mul__(self, other: Self) -> Self:
-        if not isinstance(other, WCSMap):
-            raise TypeError("WCSMaps can only be multiplied with other WCSMaps")
-        if len(self.wcs) != other.wcs:
-            raise ValueError("WCSMaps can only be multiplied if they use the same WCS")
-        multed = self.copy(deep=False)
-        multed.params = jnp.multiply(self.params, other.params)
-        return multed
+    def __imul__(self, other: Self) -> Self:
+        if isinstance(other, WCSMap):
+            if len(self.wcs) != other.wcs:
+                raise ValueError(
+                    "WCSMaps can only be multiplied if they use the same WCS"
+                )
+            to_mul = other.params
+        elif isinstance(other, float):
+            to_mul = other
+        else:
+            raise TypeError(
+                "WCSMaps can only be multiplied with other WCSMaps or floats"
+            )
+        self.params = self.params.at[:].multiply(to_mul)
+        return self
 
     @jit
-    def __matmul__(self, other: Self) -> float:
+    def __imatmul__(self, other: Self) -> float:
         if not isinstance(other, WCSMap):
             raise TypeError("WCSMaps can only be dotted with other WCSMaps")
         if len(self.wcs) != other.wcs:
