@@ -1,3 +1,16 @@
+## 0.5.0 (2024-07-30)
+
+### Feat
+
+- add pcg solver
+- expanded math operators
+- add matmul to solutions
+- add nsamp property
+
+### Refactor
+
+- move lhs and rhs to mapmaking module
+
 ## 0.4.0 (2024-07-12)
 
 ### Feat
