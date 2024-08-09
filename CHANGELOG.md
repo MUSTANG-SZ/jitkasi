@@ -1,3 +1,10 @@
+## 0.5.1 (2024-08-09)
+
+### Fix
+
+- speed up and clean up math functions, fixed some typing issues
+- use dataclass default factory and add missing import
+
 ## 0.5.0 (2024-07-30)
 
 ### Feat
