@@ -1,10 +1,10 @@
 from copy import copy, deepcopy
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from functools import cached_property
 from typing import Iterator, Optional
 
 import jax.numpy as jnp
-from jax import Array
+from jax import Array, jit
 from jax.tree_util import register_pytree_node_class
 from typing_extensions import Self
 
@@ -51,7 +51,7 @@ class TOD:
     x: Array
     y: Array
     noise: Optional[n.NoiseModel] = None
-    meta: dict = {}
+    meta: dict = field(default_factory=dict)
 
     def __post_init__(self):
         # Check that all sizes are the same
@@ -182,10 +182,10 @@ class TODVec:
         Indexing and interating the TODVec operates on this.
     """
 
-    tods: list[TOD] = []
+    tods: list[TOD] = field(default_factory=list)
 
     @property
-    @jax.jit
+    @jit
     def nsamp(self) -> int:
         nsamp = 0
         for tod in self.tods:
