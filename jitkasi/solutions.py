@@ -1,6 +1,7 @@
 from copy import copy, deepcopy
 from dataclasses import dataclass, field
-from typing import Iterator, Optional
+from functools import partial
+from typing import Any, Iterator, Optional
 
 import jax.numpy as jnp
 import numpy as np
@@ -10,6 +11,25 @@ from jax.tree_util import register_pytree_node_class
 from typing_extensions import Self
 
 from .tod import TOD, TODVec
+
+
+# TODO: Figure out math for cuts and jumps
+@partial(jit, donate_argnames=["val1"])
+def _iadd(val1, val2):
+    val1 = val1.at[:].add(val2)
+    return val1
+
+
+@partial(jit, donate_argnames=["val1"])
+def _isub(val1, val2):
+    val1 = val1.at[:].add(-1.0 * val2)
+    return val1
+
+
+@partial(jit, donate_argnames=["val1"])
+def _imul(val1, val2):
+    val1 = val1.at[:].multiply(val2)
+    return val1
 
 
 @register_pytree_node_class
@@ -45,7 +65,7 @@ class Solution:
         pass
 
     @classmethod
-    def empty(cls, /) -> Self:  # type: ignore
+    def empty(cls, **kwargs) -> Self:  # type: ignore
         pass
 
     def copy(self, deep: bool = False) -> Self:
@@ -56,8 +76,9 @@ class Solution:
         ----------
         deep : bool, default: False
             If True do a deepcopy so that all contained
-            data is also copied. Otherwise a shallow copy is
-            made and the new Solution will reference the same arrays.
+            data is also copied. Otherwise a mostly shallow copy is
+            made and the new Solution will reference the same objects
+            except for `params` which will be a copy.
 
         Returns
         -------
@@ -66,82 +87,69 @@ class Solution:
         """
         if deep:
             return deepcopy(self)
-        return copy(self)
+        else:
+            new = copy(self)
+            new.params = new.params.copy()
+            return new
 
     # Math functions
-    @jit
-    def __iadd__(self, other: Self | float) -> Self:
+    def _self_check(self, other: Self):
         pass
 
+    def _get_to_op(self, other: Any) -> Array | float:
+        if isinstance(other, type(self)):
+            to_op = other.params
+            self._self_check(other)
+        elif isinstance(other, (float, int)):
+            to_op = float(other)
+        else:
+            raise TypeError(f"Cannot use type {type(other)} to operate on {type(self)}")
+        return to_op
+
+    def __iadd__(self, other: Self | float) -> Self:
+        to_add = self._get_to_op(other)
+        self.params = _iadd(self.params, to_add)
+        return self
+
     def __add__(self, other: Self | float) -> Self:
-        to_ret = self.copy(deep=True)
+        to_ret = self.copy()
         to_ret += other
         return to_ret
 
     def __radd__(self, other: Self | float) -> Self:
-        if isinstance(other, float):
-            to_ret = self.copy(deep=True)
-            to_ret += other
-        elif isinstance(other, type(self)):
-            to_ret = other.copy(deep=True)
-            to_ret += self
-        else:
-            raise ValueError(f"Can't add {type(other)} and {type(self)}")
-        return to_ret
+        return self.__add__(other)
 
-    @jit
-    def __isub__(self, other: Self | float) -> Self:
-        pass
+    def __isub__(self, other: Any) -> Self:
+        to_sub = self._get_to_op(other)
+        self.params = _isub(self.params, to_sub)
+        return self
 
-    def __sub__(self, other: Self | float) -> Self:
-        to_ret = self.copy(deep=True)
+    def __sub__(self, other: Any) -> Self:
+        to_ret = self.copy()
         to_ret -= other
         return to_ret
 
-    def __rsub__(self, other: Self | float) -> Self:
-        if isinstance(other, float):
-            to_ret = self.copy(deep=True)
-            to_ret -= other
-        elif isinstance(other, type(self)):
-            to_ret = other.copy(deep=True)
-            to_ret -= self
-        else:
-            raise ValueError(f"Can't subtract {type(other)} and {type(self)}")
-        return to_ret
+    def __rsub__(self, other: Any) -> Self:
+        return self.__sub__(other)
 
-    @jit
-    def __imul__(self, other: Self | float) -> Self:
-        pass
+    def __imul__(self, other: Any) -> Self:
+        to_sub = self._get_to_op(other)
+        self.params = _imul(self.params, to_sub)
+        return self
 
-    def __mul__(self, other: Self | float) -> Self:
-        to_ret = self.copy(deep=True)
+    def __mul__(self, other: Any) -> Self:
+        to_ret = self.copy()
         to_ret *= other
         return to_ret
 
-    def __rmul__(self, other: Self | float) -> Self:
-        if isinstance(other, float):
-            to_ret = self.copy(deep=True)
-            to_ret *= other
-        elif isinstance(other, type(self)):
-            to_ret = other.copy(deep=True)
-            to_ret *= self
-        else:
-            raise ValueError(f"Can't multiply {type(other)} and {type(self)}")
-        return to_ret
+    def __rmul__(self, other: Any) -> Self:
+        return self.__mul__(other)
 
     @jit
-    def __imatmul__(self, other: Self) -> Self:
-        pass
-
-    def __matmul__(self, other: Self) -> Self:
-        to_ret = self.copy(deep=True)
-        to_ret @= other
-        return to_ret
-
-    def __rmatmul__(self, other: Self) -> Self:
-        to_ret = other.copy(deep=True)
-        to_ret @= self
-        return to_ret
+    def __matmul__(self, other: Self) -> float:
+        if not isinstance(other, type(self)):
+            raise ValueError(f"Can't dot {type(other)} and {type(self)}")
+        return float(jnp.sum(self.params * other.params, axis=None))
 
     # Functions for making this a pytree
     # Don't call this on your own
@@ -270,7 +278,7 @@ class WCSMap(Solution):
         lims: tuple[float, float, float, float],
         pad=0,
         square=False,
-        *args,
+        pixelization="nn",
     ) -> Self:
         """
         Initialize an empty map.
@@ -286,8 +294,9 @@ class WCSMap(Solution):
             Number of pixels to pad the map by.
         square : bool, default: False
             If True make the map square.
-        *args
-            Arguments other than `data` and `wcs` for the `WCSMap` constructor.
+        pixelization : str, default: 'nn'
+            The pixelization method to use.
+            See `WCSMap` documentation for more details.
         """
         corners = np.zeros([4, 2])
         corners[0, :] = [lims[0], lims[2]]
@@ -302,8 +311,8 @@ class WCSMap(Solution):
             print(
                 "corners seem to have gone negative in SkyMap projection.  not good, you may want to check this."
             )
-        nx = pix_corners[:, 0].max() + pad
-        ny = pix_corners[:, 1].max() + pad
+        nx = int(pix_corners[:, 0].max() + pad)
+        ny = int(pix_corners[:, 1].max() + pad)
 
         if square:
             if nx > ny:
@@ -312,63 +321,11 @@ class WCSMap(Solution):
                 nx = ny
         data = jnp.zeros((nx, ny))
 
-        return cls(data, wcs, *args)
+        return cls(data, wcs, pixelization)
 
-    # Math functions
-    @jit
-    def __iadd__(self, other: Self | float) -> Self:
-        if isinstance(other, WCSMap):
-            if len(self.wcs) != other.wcs:
-                raise ValueError("WCSMaps can only be added if they use the same WCS")
-            to_add = other.params
-        elif isinstance(other, float):
-            to_add = other
-        else:
-            raise TypeError("WCSMaps can only be added to other WCSMaps or floats")
-        self.params = self.params.at[:].add(-1.0 * to_add)
-        return self
-
-    @jit
-    def __isub__(self, other: Self) -> Self:
-        if isinstance(other, WCSMap):
-            if len(self.wcs) != other.wcs:
-                raise ValueError(
-                    "WCSMaps can only be subtracted if they use the same WCS"
-                )
-            to_sub = other.params
-        elif isinstance(other, float):
-            to_sub = other
-        else:
-            raise TypeError(
-                "WCSMaps can only be subtracted with other WCSMaps or floats"
-            )
-        self.params = self.params.at[:].add(-1.0 * to_sub)
-        return self
-
-    @jit
-    def __imul__(self, other: Self) -> Self:
-        if isinstance(other, WCSMap):
-            if len(self.wcs) != other.wcs:
-                raise ValueError(
-                    "WCSMaps can only be multiplied if they use the same WCS"
-                )
-            to_mul = other.params
-        elif isinstance(other, float):
-            to_mul = other
-        else:
-            raise TypeError(
-                "WCSMaps can only be multiplied with other WCSMaps or floats"
-            )
-        self.params = self.params.at[:].multiply(to_mul)
-        return self
-
-    @jit
-    def __imatmul__(self, other: Self) -> float:
-        if not isinstance(other, WCSMap):
-            raise TypeError("WCSMaps can only be dotted with other WCSMaps")
-        if len(self.wcs) != other.wcs:
-            raise ValueError("WCSMaps can only be dotted if they use the same WCS")
-        return float(jnp.sum(self.params * other.params, axis=None))
+    def _self_check(self, other: Self):
+        if self.wcs != other.wcs:
+            raise ValueError("Cannot operate on WCSMaps that have different WCSs")
 
     # Functions for making this a pytree
     # Don't call this on your own
@@ -401,7 +358,7 @@ class SolutionSet:
         Indexing and interating the SolutionSet operates on this.
     """
 
-    solutions: list[Solution] = []
+    solutions: list[Solution] = field(default_factory=list)
 
     def copy(self, deep: bool = False) -> Self:
         """
