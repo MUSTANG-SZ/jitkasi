@@ -1,3 +1,9 @@
+## 0.6.0 (2024-10-08)
+
+### Feat
+
+- more flexability in noise recomputation
+
 ## 0.5.1 (2024-08-09)
 
 ### Fix
