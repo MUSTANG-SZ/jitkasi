@@ -135,7 +135,13 @@ class TOD:
             return deepcopy(self)
         return copy(self)
 
-    def compute_noise(self, noise_class: n.NoiseModel, *args, **kwargs):
+    def compute_noise(
+        self,
+        noise_class: Optional[n.NoiseModel] = None,
+        data: Optional[Array] = None,
+        *args,
+        **kwargs,
+    ):
         """
         Compute and set the noise model for this TOD.
         This uses `noise_class.compute(dat=self.data...` to compute the noise.
@@ -143,16 +149,29 @@ class TOD:
 
         Parameters
         ----------
-        noise_class : NoiseModel
+        noise_class : Optional[NoiseModel] = None
             The class to use as the noise model.
             Nominally a class from `jitkasi.noise`.
+            If this is `None` then the class of `self.noise` is used,
+            if that is also `None` then an error is raised.
+        data : Optional[Array], default: None
+            Data to compute the noise model with.
+            If None we use `self.data`.
         *args
             Additional arguments to pass to `noise_class.compute`.
         *kwargs
             Additional keyword arguments to pass to `noise_class.compute`.
         """
         self.__dict__.pop("data_filt", None)
-        self.noise = noise_class.compute(self.data, *args, **kwargs)
+        if noise_class is None:
+            if self.noise is None:
+                raise ValueError(
+                    "Attempted to compute noise without specifying the noise class without self.noise set!"
+                )
+            noise_class = self.noise.__class__
+        if data is None:
+            data = self.data
+        self.noise = noise_class.compute(data, *args, **kwargs)
 
     # Functions for making this a pytree
     # Don't call this on your own
