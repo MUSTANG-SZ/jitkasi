@@ -1,11 +1,15 @@
+import warnings
 from dataclasses import dataclass
 from functools import partial
-from typing import Optional
+from logging import warning
+from typing import Callable, Optional
 
 import jax.numpy as jnp
-from jax import Array, jit
+import numpy as np
+from jax import Array, ShapeDtypeStruct, jit, pure_callback
 from jax.scipy.special import erfinv
 from jax.tree_util import register_pytree_node_class
+from numpy.typing import NDArray
 from typing_extensions import Protocol, Self, runtime_checkable
 
 
@@ -191,3 +195,121 @@ class NoiseSmoothedSVD:
     @classmethod
     def tree_unflatten(cls, aux_data, children) -> Self:
         return cls(*children)
+
+
+@register_pytree_node_class
+@dataclass
+class NoiseWrapper:
+    """
+    Wrapper to use external noise models in `jitkasi`.
+
+    Be warned that while this is provided we cannot gaurentee that the external class
+    will play nicely with the rest of the library.
+    In particular while the wrapper for `apply_noise` is set up to be called from a jitted function,
+    `compute` is not since it includes some non-pure actions.
+
+    Attributes
+    ----------
+    ext_inst : Callable
+        The instance of the external noise model class we are wrapping.
+    apply_func : str
+        The name of the function in `ext_inst` that applies noise.
+        We expect this to take a single 2d array as an argument.
+    jitted : bool
+        Whether or not the external noise class JITs its functions.
+        If this is False you should be very caruful about how you use this class.
+    shape_dtypes : ShapeDtypeStruct
+        The shape and dtype of the array that the `apply_func` expects.
+        This is really only used so what we can call `apply_func` when we aren't jitted.
+    """
+
+    ext_inst: Callable
+    apply_func: str
+    jitted: bool
+    shape_dtypes: ShapeDtypeStruct
+
+    def __post_init__(self):
+        if not self.jitted:
+            warnings.warn(
+                "Initialized a non-JIT noise class! This is not supported in all usecases, proceed with caution."
+            )
+
+    def apply_noise(self, dat: Array) -> Array:
+        """
+        Apply the external noise model.
+        This should be safe to call from jitted functions.
+
+        Parameters
+        ----------
+        dat : Array
+            The data to apply the noise model to.
+            Should have shape and dtype that matches the `shape_dtypes` attribute.
+
+        Returns
+        -------
+        dat_filt : Array
+            The data with the noise model applied.
+        """
+        if self.jitted:
+            return getattr(self.ext_inst, self.apply_func)(dat)
+        return pure_callback(
+            getattr(self.ext_inst, self.apply_func), self.shape_dtypes, np.array(dat)
+        )
+
+    @classmethod
+    def compute(
+        cls,
+        dat: Array,
+        ext_class: Callable,
+        compute_func: str,
+        apply_func: str,
+        jitted: bool,
+        *args,
+        **kwargs,
+    ) -> Self:
+        """
+        Make an instance of the external noise class and make an instance of this class to wrap it.
+
+        Parameters
+        ----------
+        dat : Array
+            The data to compute the noise model with.
+        ext_class : Callable
+            The external noise model class.
+            Must have a class method (`__call__` is acceptable) that will create an instance
+            and compute the noise model.
+        compute_func : str
+            The function that computes an instance of the external noise model.
+            Should take `dat` as its first argument.
+        apply_func : str
+            The function that applies the noise model to some data.
+        jitted : str
+            Whether or not the external noise class JITs its own functions.
+        *args
+            Additional arguments to pass to `compute_func`.
+        **kwargs
+            Additional keyword arguments to pass to `compute_func`.
+
+        Returns
+        -------
+        noise_model : NoiseWrapper
+            An instance of `NoiseWrapper` that wraps an instance of `ext_class`.
+        """
+        shape_dtypes = ShapeDtypeStruct(dat.shape, dat.dtype)
+        data: Array | NDArray = dat
+        if not jitted:
+            data = np.array(dat)
+        inst = getattr(ext_class, compute_func)(data, *args, **kwargs)
+        return cls(inst, apply_func, jitted, shape_dtypes)
+
+    # Functions for making this a pytree
+    # Don't call this on your own
+    def tree_flatten(self) -> tuple[None, tuple]:
+        children = None
+        aux_data = (self.ext_inst, self.apply_func, self.jitted, self.shape_dtypes)
+
+        return (children, aux_data)
+
+    @classmethod
+    def tree_unflatten(cls, aux_data, children) -> Self:
+        return cls(*aux_data)
