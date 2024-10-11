@@ -1,3 +1,9 @@
+## 0.7.0 (2024-10-11)
+
+### Feat
+
+- add support for external noise classes
+
 ## 0.6.0 (2024-10-08)
 
 ### Feat
