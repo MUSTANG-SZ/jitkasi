@@ -64,6 +64,11 @@ class TOD:
                 f"Expected 'data', 'x', and 'y' to have the same shape but got {shapes}."
             )
 
+        # Now make everything jax arrays in case we were given numpy arrays
+        self.data = jnp.array(self.data)
+        self.x = jnp.array(self.x)
+        self.y = jnp.array(self.y)
+
     @property
     def shape(self) -> tuple[int, ...]:
         """
@@ -77,26 +82,18 @@ class TOD:
         return self.data.shape
 
     @property
-    def lims(self) -> tuple[float, float, float, float]:
+    def lims(self) -> Array:
         """
         Get the limits of the TODs coordinates.
 
         Returns
         -------
-        x0 : float
-            The minimum x value.
-        x1 : float
-            The maximum x value.
-        y0 : float
-            The minimum y value.
-        y1 : float
-            The maximum y value.
+        lims : Array
+            The limits in the order:
+            (x min, x max, y min, y max).
         """
-        return (
-            float(jnp.min(self.x)),
-            float(jnp.max(self.x)),
-            float(jnp.min(self.y)),
-            float(jnp.max(self.y)),
+        return jnp.array(
+            (jnp.min(self.x), jnp.max(self.x), jnp.min(self.y), jnp.max(self.y))
         )
 
     @cached_property
@@ -137,8 +134,8 @@ class TOD:
 
     def compute_noise(
         self,
-        noise_class: Optional[n.NoiseModel] = None,
-        data: Optional[Array] = None,
+        noise_class: Optional[n.NoiseModel],
+        data: Optional[Array],
         *args,
         **kwargs,
     ):
@@ -171,6 +168,8 @@ class TOD:
             noise_class = self.noise.__class__
         if data is None:
             data = self.data
+        if noise_class is None:
+            raise ValueError("Noise class somehow None!")
         self.noise = noise_class.compute(data, *args, **kwargs)
 
     # Functions for making this a pytree
@@ -212,26 +211,28 @@ class TODVec:
         return nsamp
 
     @property
-    def lims(self) -> tuple[float, float, float, float]:
+    def lims(self) -> Array:
         """
         Get the global limits of all the TODs coordinates.
         Will eventually be MPI aware.
 
         Returns
         -------
-        x0 : float
-            The minimum x value.
-        x1 : float
-            The maximum x value.
-        y0 : float
-            The minimum y value.
-        y1 : float
-            The maximum y value.
+        lims : Array
+            The limits in the order:
+            (x min, x max, y min, y max).
         """
         all_lims = [tod.lims for tod in self.tods]
         all_lims = jnp.array(all_lims).reshape(-1, 4)
-        lims = jnp.max(all_lims, axis=0)
-        return tuple(lims)[:4]
+        lims = jnp.array(
+            (
+                jnp.min(all_lims[:, 0]),
+                jnp.max(all_lims[:, 1]),
+                jnp.min(all_lims[:, 2]),
+                jnp.max(all_lims[:, 3]),
+            )
+        )
+        return lims
 
     def copy(self, deep: bool = False) -> Self:
         """
