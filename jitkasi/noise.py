@@ -253,7 +253,7 @@ class NoiseWrapper:
         if self.jitted:
             return getattr(self.ext_inst, self.apply_func)(dat)
         return pure_callback(
-            getattr(self.ext_inst, self.apply_func), self.shape_dtypes, np.array(dat)
+            getattr(self.ext_inst, self.apply_func), self.shape_dtypes, dat
         )
 
     @classmethod
