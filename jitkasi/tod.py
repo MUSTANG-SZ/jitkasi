@@ -50,7 +50,7 @@ class TOD:
     data: Array
     x: Array
     y: Array
-    noise: Optional[n.NoiseModel] = None
+    noise: n.NoiseModel = field(default_factory=n.NoiseI)
     meta: dict = field(default_factory=dict)
 
     def __post_init__(self):
@@ -133,11 +133,7 @@ class TOD:
         return copy(self)
 
     def compute_noise(
-        self,
-        noise_class: Optional[n.NoiseModel],
-        data: Optional[Array],
-        *args,
-        **kwargs,
+        self, noise_class: n.NoiseModel, data: Optional[Array], *args, **kwargs
     ):
         """
         Compute and set the noise model for this TOD.
@@ -146,11 +142,9 @@ class TOD:
 
         Parameters
         ----------
-        noise_class : Optional[NoiseModel] = None
+        noise_class : NoiseModel
             The class to use as the noise model.
             Nominally a class from `jitkasi.noise`.
-            If this is `None` then the class of `self.noise` is used,
-            if that is also `None` then an error is raised.
         data : Optional[Array], default: None
             Data to compute the noise model with.
             If None we use `self.data`.
@@ -160,17 +154,27 @@ class TOD:
             Additional keyword arguments to pass to `noise_class.compute`.
         """
         self.__dict__.pop("data_filt", None)
-        if noise_class is None:
-            if self.noise is None:
-                raise ValueError(
-                    "Attempted to compute noise without specifying the noise class without self.noise set!"
-                )
-            noise_class = self.noise.__class__
         if data is None:
             data = self.data
-        if noise_class is None:
-            raise ValueError("Noise class somehow None!")
         self.noise = noise_class.compute(data, *args, **kwargs)
+
+    def recompute_noise(self, data: Optional[Array], *args, **kwargs):
+        """
+        Helper function that wraps `compute_noise` but uses the same class
+        as the current instance of `self.noise`.
+
+        Parameters
+        ----------
+        data : Optional[Array], default: None
+            Data to compute the noise model with.
+            If None we use `self.data`.
+        *args
+            Additional arguments to pass to `noise_class.compute`.
+        *kwargs
+            Additional keyword arguments to pass to `noise_class.compute`.
+        """
+        noise_class = self.noise.__class__
+        self.compute_noise(noise_class, data, *args, **kwargs)
 
     # Functions for making this a pytree
     # Don't call this on your own

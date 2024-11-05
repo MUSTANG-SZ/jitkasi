@@ -1,8 +1,7 @@
 import warnings
 from dataclasses import dataclass
 from functools import partial
-from logging import warning
-from typing import Callable, Optional
+from typing import Callable
 
 import jax.numpy as jnp
 import numpy as np
@@ -19,6 +18,59 @@ class NoiseModel(Protocol):
 
     @classmethod
     def compute(cls, dat: Array, /) -> Self: ...
+
+
+@register_pytree_node_class
+@dataclass
+class NoiseI:
+    """
+    A dummy noise class that does nothing.
+    This is the equivalent of having the noise covariance be the identity.
+    """
+
+    def apply_noise(self, dat: Array) -> Array:
+        """
+        Just returns `dat` back to you.
+
+        Parameters
+        ----------
+        dat : Array
+            The input data.
+
+        Returns
+        -------
+        dat : Array
+            The exact same thing as the input `dat`.
+            This is not a copy.
+        """
+        return dat
+
+    @classmethod
+    def compute(cls, dat: Array) -> Self:
+        """
+        Initialize an instance of this class.
+
+        Parameters
+        ----------
+        dat : Array
+            Unused, just here for API compatibility.
+        """
+        _ = dat
+        return cls()
+
+    # Functions for making this a pytree
+    # Don't call this on your own
+    def tree_flatten(self) -> tuple[None, None]:
+        children = None
+        aux_data = None
+
+        return (children, aux_data)
+
+    @classmethod
+    def tree_unflatten(cls, aux_data, children) -> Self:
+        del aux_data
+        del children
+        return cls()
 
 
 @register_pytree_node_class
@@ -90,6 +142,7 @@ class NoiseWhite:
 
     @classmethod
     def tree_unflatten(cls, aux_data, children) -> Self:
+        del aux_data
         return cls(*children)
 
 
@@ -194,6 +247,7 @@ class NoiseSmoothedSVD:
 
     @classmethod
     def tree_unflatten(cls, aux_data, children) -> Self:
+        del aux_data
         return cls(*children)
 
 
@@ -312,4 +366,5 @@ class NoiseWrapper:
 
     @classmethod
     def tree_unflatten(cls, aux_data, children) -> Self:
+        del children
         return cls(*aux_data)
