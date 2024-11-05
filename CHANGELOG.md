@@ -1,3 +1,15 @@
+## 0.8.0 (2024-11-05)
+
+### Feat
+
+- add mpi support to todvec
+- add indentity noise and helper function for recomputing noise
+
+### Fix
+
+- compute lims properly, better error handling on noise computation, and make sure arrays are jax arrays
+- dont cast in pure callback
+
 ## 0.7.0 (2024-10-11)
 
 ### Feat
