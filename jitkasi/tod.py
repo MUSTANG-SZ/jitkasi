@@ -4,8 +4,10 @@ from functools import cached_property
 from typing import Iterator, Optional
 
 import jax.numpy as jnp
+import mpi4jax
 from jax import Array, jit
 from jax.tree_util import register_pytree_node_class
+from mpi4py import MPI
 from typing_extensions import Self
 
 from . import noise as n
@@ -205,6 +207,7 @@ class TODVec:
     """
 
     tods: list[TOD] = field(default_factory=list)
+    comm: MPI.Intracomm = field(default_factory=MPI.COMM_WORLD.Clone)
 
     @property
     @jit
@@ -228,15 +231,13 @@ class TODVec:
         """
         all_lims = [tod.lims for tod in self.tods]
         all_lims = jnp.array(all_lims).reshape(-1, 4)
-        lims = jnp.array(
-            (
-                jnp.min(all_lims[:, 0]),
-                jnp.max(all_lims[:, 1]),
-                jnp.min(all_lims[:, 2]),
-                jnp.max(all_lims[:, 3]),
-            )
-        )
-        return lims
+        # Order not important here, no need for tokens
+        x0, _ = mpi4jax.allreduce(jnp.min(all_lims[:, 0]), MPI.MIN, comm=self.comm)
+        x1, _ = mpi4jax.allreduce(jnp.max(all_lims[:, 1]), MPI.MAX, comm=self.comm)
+        y0, _ = mpi4jax.allreduce(jnp.min(all_lims[:, 2]), MPI.MIN, comm=self.comm)
+        y1, _ = mpi4jax.allreduce(jnp.max(all_lims[:, 3]), MPI.MAX, comm=self.comm)
+        lims = jnp.array((x0, x1, y0, y1))
+        return jnp.ravel(lims)
 
     def copy(self, deep: bool = False) -> Self:
         """
@@ -316,12 +317,12 @@ class TODVec:
 
     # Functions for making this a pytree
     # Don't call this on your own
-    def tree_flatten(self) -> tuple[tuple, None]:
+    def tree_flatten(self) -> tuple[tuple, tuple]:
         children = tuple(self.tods)
-        aux_data = None
+        aux_data = (self.comm,)
 
         return (children, aux_data)
 
     @classmethod
     def tree_unflatten(cls, aux_data, children) -> Self:
-        return cls(list(children))
+        return cls(list(children), *aux_data)
