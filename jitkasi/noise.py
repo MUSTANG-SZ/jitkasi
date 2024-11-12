@@ -5,11 +5,13 @@ from typing import Callable
 
 import jax.numpy as jnp
 import numpy as np
-from jax import Array, ShapeDtypeStruct, jit, pure_callback
+from jax import Array, ShapeDtypeStruct, jit, lax, pure_callback
 from jax.scipy.special import erfinv
 from jax.tree_util import register_pytree_node_class
 from numpy.typing import NDArray
 from typing_extensions import Protocol, Self, runtime_checkable
+
+from . import math as jm
 
 
 @runtime_checkable
@@ -193,12 +195,11 @@ class NoiseSmoothedSVD:
             The data with the noise model applied.
         """
         dat_rot = jnp.dot(self.v, dat)
-        dat_tmp = jnp.hstack([dat_rot, jnp.fliplr(dat_rot[:, 1:-1])])
-        dat_rft = jnp.real(jnp.fft.rfft(dat_tmp, axis=1))
-        dat_filt = jnp.fft.irfft(
-            self.filt_spectrum[:, : dat_rft.shape[1]] * dat_rft, axis=1, norm="forward"
-        )[:, : dat.shape[1]]
-        dat_filt = jnp.dot(self.v.T, dat_filt)
+        dat_rft = jm.dct_i(dat_rot)
+        dat_filt = jm.dct_i(
+            dat_rft.at[:].multiply(self.filt_spectrum[:, : dat_rft.shape[1]]), False
+        )
+        dat_filt = dat_filt.at[:].set(jnp.dot(self.v.T, dat_filt))
         dat_filt = dat_filt.at[:, 0].multiply(0.50)
         dat_filt = dat_filt.at[:, -1].multiply(0.50)
         return dat_filt
@@ -221,18 +222,14 @@ class NoiseSmoothedSVD:
 
         Returns
         -------
-        noise_model : NoiseWhite
-            An instance of NoiseWhite with the computed noise model.
+        noise_model : NoiseSmoothedSVD
+            An instance of NoiseSmoothedSVD with the computed noise model.
         """
         u, *_ = jnp.linalg.svd(dat, True)
         v = u.T
         dat_rot = jnp.dot(v, dat)
-        dat_ft = jnp.real(jnp.fft.rfft(dat_rot))
-        smooth_kern = jnp.exp(
-            -0.5 * (jnp.arange(dat_ft.shape[1]) * jnp.sqrt(8 * jnp.log(2)) / fwhm) ** 2
-        )
-        for i in range(dat_ft.shape[0]):
-            dat_ft = dat_ft.at[i].set(jnp.convolve(dat_ft[i], smooth_kern) ** 2)
+        dat_ft = jm.dct_i(dat_rot)
+        dat_ft = dat_ft.at[:].set(jm.gauss_smooth_1d(dat_ft**2, fwhm))
         dat_ft = dat_ft.at[:, 1:].set(1.0 / dat_ft[:, 1:])
         dat_ft = dat_ft.at[:, 0].set(0)
         return cls(v, dat_ft)
