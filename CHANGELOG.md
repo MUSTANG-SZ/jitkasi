@@ -1,3 +1,13 @@
+## 0.9.0 (2024-11-12)
+
+### Feat
+
+- add module for useful math functions
+
+### Fix
+
+- correct DCT usage in NoiseSmoothedSVD
+
 ## 0.8.0 (2024-11-05)
 
 ### Feat
