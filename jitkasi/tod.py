@@ -239,7 +239,7 @@ class TODVec:
         lims = jnp.array((x0, x1, y0, y1))
         return jnp.ravel(lims)
 
-    def copy(self, deep: bool = False) -> Self:
+    def copy(self, deep: bool = False, copy_comm=False) -> Self:
         """
         Return of copy of the TODVec.
 
@@ -255,9 +255,14 @@ class TODVec:
         copy : TODVec
             A copy of this TODVec.
         """
+        comm = self.comm
+        if copy_comm:
+            comm = MPI.COMM_WORLD.Clone()
         if deep:
-            return deepcopy(self)
-        return copy(self)
+            tods = deepcopy(self.tods)
+        else:
+            tods = copy(self.tods)
+        return self.__class__(tods, comm)
 
     # Functions to make this list like
     def __getitem__(self, key: int) -> TOD:
