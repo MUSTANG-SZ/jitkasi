@@ -44,15 +44,15 @@ class Solution:
 
     Attributes
     ----------
-    params : Array
-        The model params we are solving for.
+    data : Array
+        The model data we are solving for.
         For example if we are solving for a map then this is the map,
         if we are solving for cuts then this is the modeled offsets.
         Mathematically this is $m$ in $d = Pm + n$.
         This should always be a child of the pytree.
     """
 
-    params: Array
+    data: Array
 
     @jit
     def to_tods(self, todvec: TODVec) -> TODVec:  # type: ignore
@@ -78,7 +78,7 @@ class Solution:
             If True do a deepcopy so that all contained
             data is also copied. Otherwise a mostly shallow copy is
             made and the new Solution will reference the same objects
-            except for `params` which will be a copy.
+            except for `data` which will be a copy.
 
         Returns
         -------
@@ -89,7 +89,7 @@ class Solution:
             return deepcopy(self)
         else:
             new = copy(self)
-            new.params = new.params.copy()
+            new.data = new.data.copy()
             return new
 
     # Math functions
@@ -99,7 +99,7 @@ class Solution:
 
     def _get_to_op(self, other: Any) -> Array | float:
         if isinstance(other, type(self)):
-            to_op = other.params
+            to_op = other.data
             self._self_check(other)
         elif isinstance(other, (float, int)):
             to_op = float(other)
@@ -109,7 +109,7 @@ class Solution:
 
     def __iadd__(self, other: Self | float) -> Self:
         to_add = self._get_to_op(other)
-        self.params = _iadd(self.params, to_add)
+        self.data = _iadd(self.data, to_add)
         return self
 
     def __add__(self, other: Self | float) -> Self:
@@ -122,7 +122,7 @@ class Solution:
 
     def __isub__(self, other: Any) -> Self:
         to_sub = self._get_to_op(other)
-        self.params = _isub(self.params, to_sub)
+        self.data = _isub(self.data, to_sub)
         return self
 
     def __sub__(self, other: Any) -> Self:
@@ -135,7 +135,7 @@ class Solution:
 
     def __imul__(self, other: Any) -> Self:
         to_sub = self._get_to_op(other)
-        self.params = _imul(self.params, to_sub)
+        self.data = _imul(self.data, to_sub)
         return self
 
     def __mul__(self, other: Any) -> Self:
@@ -150,12 +150,12 @@ class Solution:
     def __matmul__(self, other: Self) -> float:
         if not isinstance(other, type(self)):
             raise ValueError(f"Can't dot {type(other)} and {type(self)}")
-        return float(jnp.sum(self.params * other.params, axis=None))
+        return float(jnp.sum(self.data * other.data, axis=None))
 
     # Functions for making this a pytree
     # Don't call this on your own
     def tree_flatten(self) -> tuple[tuple, Optional[tuple]]:
-        children = (self.params,)
+        children = (self.data,)
         aux_data = None
 
         return (children, aux_data)
@@ -252,7 +252,7 @@ class SolutionSet:
         solutionset_out : SolutionSet
             A SolutionSet with the TODs projected into each Solution.
             The new Solutions are shallow copies of the current ones so all Arrays
-            except for params reference the same memory as before.
+            except for data reference the same memory as before.
         """
         solutionset_out = self.copy(deep=False)
         for i, solution in enumerate(self):
