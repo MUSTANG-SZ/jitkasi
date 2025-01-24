@@ -1,3 +1,13 @@
+## 1.0.0 (2025-01-24)
+
+### Feat
+
+- rename solution params to data, add function to get map hits, add map noise models
+
+### Refactor
+
+- make solutions a submodule and break map class out to its own file
+
 ## 0.9.1 (2025-01-06)
 
 ### Fix
