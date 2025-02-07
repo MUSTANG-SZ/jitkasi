@@ -152,9 +152,19 @@ class TOD:
             If None we use `self.data`.
         *args
             Additional arguments to pass to `noise_class.compute`.
+            Note that any argunment that is a string that starts with `self` will be evaled.
         *kwargs
             Additional keyword arguments to pass to `noise_class.compute`.
+            Note that any argument value that is a string that starts with `self` will be evaled.
         """
+        args = [
+            eval(arg) if (isinstance(arg, str) and arg[:4] == "self") else arg
+            for arg in args
+        ]
+        kwargs = {
+            k: (eval(v) if (isinstance(v, str) and v[:4] == "self") else v)
+            for k, v in kwargs.items()
+        }
         self.__dict__.pop("data_filt", None)
         if data is None:
             data = self.data
@@ -204,6 +214,8 @@ class TODVec:
     tods : list[TOD]
         The TODs that belong to this TODVec.
         Indexing and interating the TODVec operates on this.
+    comm : MPI.Intracomm
+        The MPI communicator to use.
     """
 
     tods: list[TOD] = field(default_factory=list)
