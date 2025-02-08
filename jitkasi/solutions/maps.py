@@ -1,12 +1,14 @@
-from dataclasses import cached_property, dataclass, field
-from functools import partial
+from dataclasses import dataclass, field
+from functools import cached_property, partial
 from typing import Optional
 
 import jax.numpy as jnp
+import mpi4jax
 import numpy as np
 from astropy.wcs import WCS
 from jax import Array, jit
 from jax.tree_util import register_pytree_node_class
+from mpi4py import MPI
 from typing_extensions import Self
 
 from ..noise import NoiseI, NoiseModel
@@ -35,12 +37,17 @@ class WCSMap(Solution):
         Currently accepted values are:
         * 'nn': Nearest neighpor pixelization.
         This is aux data for the pytree.
+    noise : NoiseModel, default: NoiseI
+        The map space noise model.
+    ivar : Array, jnp.ones(1)
+        The inverse variance of the map.
+        By default this is one everywhere.
     """
 
     wcs: WCS
     pixelization: str
     noise: NoiseModel = field(default_factory=NoiseI)
-    hits: Optional[Array] = None
+    ivar: Array = field(default_factory=partial(jnp.ones, 1))
     _pix_reg: dict = field(init=False, repr=False, default_factory=dict)
 
     def __post_init__(self):
@@ -49,6 +56,30 @@ class WCSMap(Solution):
         # Check that we have a valid pixelization scheme
         if self.pixelization not in self._pix_reg.keys():
             raise ValueError(f"Invalid pixelization: {self.pixelization}")
+        if self.ivar.shape != self.data.shape:
+            self.ivar = jnp.ones_like(self.data)
+
+    @cached_property
+    def xy(self) -> tuple[Array, Array]:
+        """
+        Get the ra and dex at each pixel in the map.
+
+        Returns
+        -------
+        ra : Array
+            The Ra at each pixel.
+        dec : Array
+            The dec at eahc pixel
+        """
+        xx, yy = np.meshgrid(
+            np.arange(1, self.data.shape[0] + 1, dtype=float),
+            np.arange(1, self.data.shape[1] + 1, dtype=float),
+        )
+        x, y = self.wcs.wcs_pix2world(np.array(xx.ravel()), np.array(yy.ravel()), 1)
+        return (
+            jnp.array(x).reshape(self.data.shape) * jnp.pi / 180.0,
+            jnp.array(y).reshape(self.data.shape) * jnp.pi / 180.0,
+        )
 
     @jit
     def nn_pix(self, tod: TOD) -> Array:
@@ -144,18 +175,18 @@ class WCSMap(Solution):
         Returns
         -------
         wcsmap : WCSMap
-            A WCSmap with the hits map included.
+            A WCSmap with the hits map included as `wcsmap.ivar`.
             This is the same as the current object,
             but needs to be returned for jit to work.
         """
-        self.hits = jnp.zeros_like(self.data)
+        self.ivar = jnp.zeros_like(self.data)
         for tod in todvec:
             pix = self._pix_reg[self.pixelization](tod)
             data = jnp.ones_like(tod.data)
             if use_filt:
                 data = tod.noise.apply_noise(data)
             if self.pixelization == "nn":
-                self.hits = self._nn_bin(self.hits, data, pix)
+                self.ivar = self._nn_bin(self.ivar, data, pix)
         return self
 
     @cached_property
@@ -192,9 +223,19 @@ class WCSMap(Solution):
             If None we use `self.data`.
         *args
             Additional arguments to pass to `noise_class.compute`.
+            Note that any argunment that is a string that starts with `self` will be evaled.
         *kwargs
-            Additional keyword arguments to pass to `noise_class.compute`.
+            Additional keyword .reshape(self.data.shape)arguments to pass to `noise_class.compute`.
+            Note that any argument value that is a string that starts with `self` will be evaled.
         """
+        args = [
+            eval(arg) if (isinstance(arg, str) and arg[:4] == "self") else arg
+            for arg in args
+        ]
+        kwargs = {
+            k: (eval(v) if (isinstance(v, str) and v[:4] == "self") else v)
+            for k, v in kwargs.items()
+        }
         self.__dict__.pop("data_filt", None)
         if data is None:
             data = self.data
@@ -218,10 +259,24 @@ class WCSMap(Solution):
         noise_class = self.noise.__class__
         self.compute_noise(noise_class, data, *args, **kwargs)
 
+    @jit
+    def reduce(self) -> Self:
+        """
+        MPI reduce the solution.
+        This adds up all the data in all insances of this solution.
+        """
+        self.data, token = mpi4jax.allreduce(self.data, op=MPI.SUM, comm=self.comm)
+        self.ivar, _ = mpi4jax.allreduce(
+            self.ivar, op=MPI.SUM, comm=self.comm, token=token
+        )
+        return self
+
     @classmethod
     def empty(
         cls,
         *,
+        name: str,
+        comm: MPI.Intracomm,
         wcs: WCS,
         lims: tuple[float, float, float, float],
         pad=0,
@@ -234,6 +289,10 @@ class WCSMap(Solution):
 
         Parameters
         ----------
+        name : str
+            The name of the map.
+        comm : MPI.Intracomm
+            The MPI communicator to use.
         wcs : WCS
             The WCS kernel to use for this map.
         lims : tuple[float, float, float, float]
@@ -270,7 +329,7 @@ class WCSMap(Solution):
                 nx = ny
         data = jnp.zeros((nx, ny))
 
-        return cls(data, wcs, pixelization)
+        return cls(name, data, comm, wcs, pixelization)
 
     def _self_check(self, other: Self):
         if self.wcs != other.wcs:
@@ -279,14 +338,16 @@ class WCSMap(Solution):
     # Functions for making this a pytree
     # Don't call this on your own
     def tree_flatten(self) -> tuple[tuple, tuple]:
-        children = (self.data,)
-        aux_data = (self.wcs, self.pixelization)
+        children = (self.data, self.ivar, self.noise)
+        aux_data = (self.name, self.comm, self.wcs, self.pixelization)
 
         return (children, aux_data)
 
     @classmethod
     def tree_unflatten(cls, aux_data, children) -> Self:
-        return cls(*children, *aux_data)
+        name, comm, wcs, pixelization = aux_data
+        data, ivar, noise = children
+        return cls(name, data, comm, wcs, pixelization, noise, ivar)
 
 
 # Map based noise classes
@@ -301,7 +362,7 @@ class NoiseWhite:
     Attributes
     ----------
     weights: Array
-        The per-pixel weights computed from the hits map.
+        The per-pixel weights computed from the ivar map.
         This is a child of the pytree.
     """
 
@@ -328,18 +389,18 @@ class NoiseWhite:
 
     @classmethod
     @partial(jit, static_argnums=(0,))
-    def compute(cls, dat: Array, hits: Array) -> Self:
+    def compute(cls, dat: Array, ivar: Array) -> Self:
         """
         Compute this noise model based on some input data.
-        This requires you to have a hits map for your map.
+        This requires you to have a ivar map for your map.
 
         Parameters
         ----------
         dat : Array
             The map data.
             This is only here for API compatibility.
-        hits : Array
-            The hits map to use as weights.
+        ivar : Array
+            The ivar map to use as weights.
 
         Returns
         -------
@@ -347,7 +408,7 @@ class NoiseWhite:
             An instance of NoiseWhite with the computed noise model.
         """
         _ = dat
-        return cls(hits)
+        return cls(ivar)
 
     # Functions for making this a pytree
     # Don't call this on your own

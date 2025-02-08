@@ -4,8 +4,10 @@ from functools import partial
 from typing import Any, Iterator, Optional
 
 import jax.numpy as jnp
+import mpi4jax
 from jax import Array, jit
 from jax.tree_util import register_pytree_node_class
+from mpi4py import MPI
 from typing_extensions import Self
 
 from ..tod import TODVec
@@ -44,15 +46,21 @@ class Solution:
 
     Attributes
     ----------
+    name : str
+        An identifying string for this solution.
     data : Array
         The model data we are solving for.
         For example if we are solving for a map then this is the map,
         if we are solving for cuts then this is the modeled offsets.
         Mathematically this is $m$ in $d = Pm + n$.
         This should always be a child of the pytree.
+    comm : MPI.Intracomm
+        The MPI communicator to use.
     """
 
+    name: str
     data: Array
+    comm: MPI.Intracomm
 
     @jit
     def to_tods(self, todvec: TODVec) -> TODVec:  # type: ignore
@@ -152,20 +160,31 @@ class Solution:
             raise ValueError(f"Can't dot {type(other)} and {type(self)}")
         return float(jnp.sum(self.data * other.data, axis=None))
 
+    @jit
+    def reduce(self) -> Self:
+        """
+        MPI reduce the solution.
+        This adds up all the data in all insances of this solution.
+        """
+        dat_sum, _ = mpi4jax.allreduce(self.data, op=MPI.SUM, comm=self.comm)
+        self.data = dat_sum
+        return self
+
     # Functions for making this a pytree
     # Don't call this on your own
     def tree_flatten(self) -> tuple[tuple, Optional[tuple]]:
         children = (self.data,)
-        aux_data = None
+        aux_data = (self.name, self.comm)
 
         return (children, aux_data)
 
     @classmethod
     def tree_unflatten(cls, aux_data, children) -> Self:
-        _ = aux_data
-        return cls(*children)
+        name, comm = aux_data
+        return cls(name, children[0], comm)
 
 
+@register_pytree_node_class
 @dataclass
 class SolutionSet:
     """
@@ -182,9 +201,12 @@ class SolutionSet:
     solutions : list[Solution]
         The solutions that belong to this SolutionSet.
         Indexing and interating the SolutionSet operates on this.
+    comm : MPI.Intracomm
+        The MPI communicator to use.
     """
 
     solutions: list[Solution] = field(default_factory=list)
+    comm: MPI.Intracomm = field(default_factory=MPI.COMM_WORLD.Clone)
 
     def copy(self, deep: bool = False) -> Self:
         """
@@ -339,13 +361,12 @@ class SolutionSet:
 
     # Functions for making this a pytree
     # Don't call this on your own
-    def tree_flatten(self) -> tuple[tuple, None]:
+    def tree_flatten(self) -> tuple[tuple, tuple]:
         children = tuple(self.solutions)
-        aux_data = None
+        aux_data = (self.comm,)
 
         return (children, aux_data)
 
     @classmethod
     def tree_unflatten(cls, aux_data, children) -> Self:
-        _ = aux_data
-        return cls(list(children))
+        return cls(list(children), *aux_data)
