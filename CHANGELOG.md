@@ -1,3 +1,9 @@
+## 2.0.0 (2025-02-08)
+
+### Feat
+
+- add mpi support to solutions, and ivar to maps, several doc fixes, rename to avoid namespace collision
+
 ## 1.0.0 (2025-01-24)
 
 ### Feat
