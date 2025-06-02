@@ -2,7 +2,7 @@
 Core mapmaking functions
 """
 
-from jax import jit
+from jax import jit, lax
 
 from .solutions import SolutionSet
 from .tod import TODVec
@@ -59,7 +59,37 @@ def make_rhs(solutionset: SolutionSet, todvec: TODVec) -> SolutionSet:
     return rhs
 
 
-@jit
+def _pcg_step(step, pars):
+    _ = step
+    todvec, precon, p, x, r, zr = pars
+
+    # Compute pAp
+    Ap = make_lhs(p, todvec)
+    pAp = p @ Ap
+
+    # Compute alpha_k
+    alpha = zr / pAp
+
+    # Update guess using alpha
+    x = p - alpha * x
+
+    # Write down next remainder r_k+1
+    r = Ap - alpha * r
+
+    # Apply preconditioner
+    z = precon * r
+
+    # compute new z_k+1
+    zr_old = zr
+    zr = r @ z
+
+    # compute beta_k, which is used to compute p_k+1
+    beta = zr / zr_old
+
+    # compute new p_k+1
+    p = p + beta * p
+
+
 def run_pcg(
     rhs: SolutionSet,
     todvec: TODVec,
@@ -112,32 +142,10 @@ def run_pcg(
     zr = r @ z
     # make a copy of our initial guess
     x = x0.copy(deep=True)
-    alpha = 0
-    for _ in range(maxiter):
-        # Compute pAp
-        Ap = make_lhs(p, todvec)
-        pAp = p @ Ap
 
-        # Compute alpha_k
-        alpha = zr / pAp
-
-        # Update guess using alpha
-        x = p - alpha * x
-
-        # Write down next remainder r_k+1
-        r = Ap - alpha * r
-
-        # Apply preconditioner
-        z = precon * r
-
-        # compute new z_k+1
-        zr_old = zr
-        zr = r @ z
-
-        # compute beta_k, which is used to compute p_k+1
-        beta = zr / zr_old
-
-        # compute new p_k+1
-        p = p + beta * p
+    # Run for maxiter steps
+    todvec, precon, p, x, r, zr = lax.fori_loop(
+        0, maxiter, _pcg_step, (todvec, precon, p, x, r, zr), unroll=True
+    )
 
     return x
