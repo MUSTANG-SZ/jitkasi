@@ -1,3 +1,13 @@
+## 2.0.1 (2025-06-02)
+
+### Fix
+
+- change typehint for input noise class
+
+### Perf
+
+- switch to jax fori_loop
+
 ## 2.0.0 (2025-02-08)
 
 ### Feat
