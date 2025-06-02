@@ -1,6 +1,6 @@
 from dataclasses import dataclass, field
 from functools import cached_property, partial
-from typing import Optional
+from typing import Optional, Type
 
 import jax.numpy as jnp
 import mpi4jax
@@ -206,7 +206,7 @@ class WCSMap(Solution):
         return self.noise.apply_noise(self.data)
 
     def compute_noise(
-        self, noise_class: NoiseModel, data: Optional[Array], *args, **kwargs
+        self, noise_class: Type[NoiseModel], data: Optional[Array], *args, **kwargs
     ):
         """
         Compute and set the noise model for this map.
@@ -215,7 +215,7 @@ class WCSMap(Solution):
 
         Parameters
         ----------
-        noise_class : NoiseModel
+        noise_class : Type[NoiseModel]
             The class to use as the noise model.
             Nominally a class from `jitkasi.noise`.
         data : Optional[Array], default: None
