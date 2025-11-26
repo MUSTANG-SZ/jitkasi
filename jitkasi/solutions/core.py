@@ -172,7 +172,7 @@ class Solution:
 
     # Functions for making this a pytree
     # Don't call this on your own
-    def tree_flatten(self) -> tuple[tuple, Optional[tuple]]:
+    def tree_flatten(self) -> tuple[tuple, tuple]:
         children = (self.data,)
         aux_data = (self.name, self.comm)
 

@@ -62,16 +62,16 @@ class NoiseI:
 
     # Functions for making this a pytree
     # Don't call this on your own
-    def tree_flatten(self) -> tuple[None, None]:
-        children = None
-        aux_data = None
+    def tree_flatten(self) -> tuple[tuple, tuple]:
+        children = tuple()
+        aux_data = tuple()
 
         return (children, aux_data)
 
     @classmethod
     def tree_unflatten(cls, aux_data, children) -> Self:
-        del aux_data
-        del children
+        _ = aux_data
+        _ = children
         return cls()
 
 
