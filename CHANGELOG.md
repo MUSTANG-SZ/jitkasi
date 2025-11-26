@@ -1,3 +1,9 @@
+## 2.0.2 (2025-11-26)
+
+### Fix
+
+- fixes to pytree construction
+
 ## 2.0.1 (2025-06-02)
 
 ### Fix
