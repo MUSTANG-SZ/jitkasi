@@ -1,3 +1,9 @@
+## 2.0.3 (2025-12-24)
+
+### Fix
+
+- import solutions submodule in init
+
 ## 2.0.2 (2025-11-26)
 
 ### Fix
