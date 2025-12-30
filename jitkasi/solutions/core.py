@@ -166,7 +166,7 @@ class Solution:
         MPI reduce the solution.
         This adds up all the data in all insances of this solution.
         """
-        dat_sum, _ = mpi4jax.allreduce(self.data, op=MPI.SUM, comm=self.comm)
+        dat_sum = mpi4jax.allreduce(self.data, op=MPI.SUM, comm=self.comm)
         self.data = dat_sum
         return self
 

@@ -265,10 +265,8 @@ class WCSMap(Solution):
         MPI reduce the solution.
         This adds up all the data in all insances of this solution.
         """
-        self.data, token = mpi4jax.allreduce(self.data, op=MPI.SUM, comm=self.comm)
-        self.ivar, _ = mpi4jax.allreduce(
-            self.ivar, op=MPI.SUM, comm=self.comm, token=token
-        )
+        self.data = mpi4jax.allreduce(self.data, op=MPI.SUM, comm=self.comm)
+        self.ivar = mpi4jax.allreduce(self.ivar, op=MPI.SUM, comm=self.comm)
         return self
 
     @classmethod
