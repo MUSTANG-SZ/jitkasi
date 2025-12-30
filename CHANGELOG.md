@@ -1,3 +1,9 @@
+## 2.0.4 (2025-12-30)
+
+### Fix
+
+- pin jax and mpi4jax and remove tokens
+
 ## 2.0.3 (2025-12-24)
 
 ### Fix
