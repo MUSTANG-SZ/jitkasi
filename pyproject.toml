@@ -14,7 +14,7 @@ requires-python = ">=3.8"
 keywords = ["mapmaking", "CMB", "MUSTANG2", "jax", "minkasi"]
 license = {text = "GPLv3"}
 classifiers = [ "Programming Language :: Python" ]
-dependencies = ["numpy", "astropy", "jax==0.8.2", "jaxlib=0.8.2", "cython", "mpi4py", "mpi4jax>=0.8.1"]
+dependencies = ["numpy", "astropy", "jax==0.8.2", "jaxlib==0.8.2", "cython", "mpi4py", "mpi4jax>=0.8.1"]
 
 [project.optional-dependencies]
 docs = [
