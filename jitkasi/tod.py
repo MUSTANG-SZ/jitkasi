@@ -226,7 +226,7 @@ class TODVec:
     def nsamp(self) -> int:
         nsamp = 0
         for tod in self.tods:
-            nsamp += int(jnp.product(jnp.array(tod.shape), axis=None))
+            nsamp += int(jnp.prod(jnp.array(tod.shape), axis=None))
         return nsamp
 
     @property
@@ -244,10 +244,10 @@ class TODVec:
         all_lims = [tod.lims for tod in self.tods]
         all_lims = jnp.array(all_lims).reshape(-1, 4)
         # Order not important here, no need for tokens
-        x0, _ = mpi4jax.allreduce(jnp.min(all_lims[:, 0]), MPI.MIN, comm=self.comm)
-        x1, _ = mpi4jax.allreduce(jnp.max(all_lims[:, 1]), MPI.MAX, comm=self.comm)
-        y0, _ = mpi4jax.allreduce(jnp.min(all_lims[:, 2]), MPI.MIN, comm=self.comm)
-        y1, _ = mpi4jax.allreduce(jnp.max(all_lims[:, 3]), MPI.MAX, comm=self.comm)
+        x0 = mpi4jax.allreduce(jnp.min(all_lims[:, 0]), MPI.MIN, comm=self.comm)
+        x1 = mpi4jax.allreduce(jnp.max(all_lims[:, 1]), MPI.MAX, comm=self.comm)
+        y0 = mpi4jax.allreduce(jnp.min(all_lims[:, 2]), MPI.MIN, comm=self.comm)
+        y1 = mpi4jax.allreduce(jnp.max(all_lims[:, 3]), MPI.MAX, comm=self.comm)
         lims = jnp.array((x0, x1, y0, y1))
         return jnp.ravel(lims)
 
