@@ -14,12 +14,68 @@ from typing_extensions import Protocol, Self, runtime_checkable
 from . import math as jm
 
 
-@runtime_checkable
-class NoiseModel(Protocol):
-    def apply_noise(self, dat: Array) -> Array: ...
-
-    @classmethod
-    def compute(cls, dat: Array, /) -> Self: ...
+#@runtime_checkable
+class NoiseMapCov:  #(protocol)
+    """  
+    Noise model that applies a covariance matrix loaded from .npy files.  
+    """  
+      
+    def __init__(self, cov_matrix: Array):  
+        """  
+        Initialize with pre-loaded covariance matrix.  
+          
+        Parameters  
+        ----------  
+        cov_matrix : Array  
+            The covariance matrix to apply.  
+        """  
+        self.cov_matrix = cov_matrix  
+        # Pre-compute Cholesky decomposition for efficient application  
+        self.chol = jnp.linalg.cholesky(cov_matrix + jnp.eye(cov_matrix.shape[0]) * 1e-10)  
+      
+    def apply_noise(self, dat: Array) -> Array:  
+        """  
+        Apply noise covariance filtering to data.  
+          
+        Parameters  
+        ----------  
+        dat : Array  
+            Input data array.  
+              
+        Returns  
+        -------  
+        Array  
+            Noise-filtered data.  
+        """  
+        # Apply inverse covariance weighting: C^(-1) * dat  
+        # Using Cholesky solve for numerical stability  
+        return jax.scipy.linalg.cho_solve((self.chol, True), dat)  
+      
+    @classmethod  
+    def compute(cls, cov_files: list[str], /) -> Self:  
+        """  
+        Create noise model from covariance matrix files.  
+          
+        Parameters  
+        ----------  
+        cov_files : list[str]  
+            List of .npy files containing covariance matrices.  
+              
+        Returns  
+        -------  
+        Self  
+            Instance of NoiseCovariance with loaded covariance.  
+        """  
+        # Load and combine covariance matrices from multiple files  
+        cov_matrices = []  
+        for file in cov_files:  
+            cov = jnp.array(np.load(file))  
+            cov_matrices.append(cov)  
+          
+        # Combine matrices (e.g., block diagonal for independent datasets)  
+        combined_cov = jax.scipy.linalg.block_diag(*cov_matrices)  
+          
+        return cls(combined_cov)
 
 
 @register_pytree_node_class
