@@ -3,6 +3,8 @@ from dataclasses import dataclass
 from functools import partial
 from typing import Callable
 
+from pixell import enmap
+import jax
 import jax.numpy as jnp
 import numpy as np
 from jax import Array, ShapeDtypeStruct, jit, lax, pure_callback
@@ -13,9 +15,18 @@ from typing_extensions import Protocol, Self, runtime_checkable
 
 from . import math as jm
 
+@runtime_checkable
+class NoiseModel(Protocol):
+    def apply_noise(self, dat: Array) -> Array: ...
 
-#@runtime_checkable
-class NoiseMapCov:  #(protocol)
+    @classmethod
+    def compute(cls, dat: Array, /) -> Self: ...
+
+
+
+@register_pytree_node_class
+@dataclass
+class NoiseMapCov:  #should change this to be in fourier space
     """  
     Noise model that applies a covariance matrix loaded from .npy files.  
     """  
@@ -30,8 +41,7 @@ class NoiseMapCov:  #(protocol)
             The covariance matrix to apply.  
         """  
         self.cov_matrix = cov_matrix  
-        # Pre-compute Cholesky decomposition for efficient application  
-        self.chol = jnp.linalg.cholesky(cov_matrix + jnp.eye(cov_matrix.shape[0]) * 1e-10)  
+        
       
     def apply_noise(self, dat: Array) -> Array:  
         """  
@@ -49,10 +59,10 @@ class NoiseMapCov:  #(protocol)
         """  
         # Apply inverse covariance weighting: C^(-1) * dat  
         # Using Cholesky solve for numerical stability  
-        return jax.scipy.linalg.cho_solve((self.chol, True), dat)  
+        return dat*self.cov_matrix
       
     @classmethod  
-    def compute(cls, cov_files: list[str], /) -> Self:  
+    def compute(cls, dat: Array, icov_files: list[str], /) -> Self:  
         """  
         Create noise model from covariance matrix files.  
           
@@ -68,14 +78,28 @@ class NoiseMapCov:  #(protocol)
         """  
         # Load and combine covariance matrices from multiple files  
         cov_matrices = []  
-        for file in cov_files:  
-            cov = jnp.array(np.load(file))  
+        for file in icov_files:
+            #import pdb; pdb.set_trace()  
+            cov = jnp.array(enmap.read_map(file).data)  
             cov_matrices.append(cov)  
           
         # Combine matrices (e.g., block diagonal for independent datasets)  
         combined_cov = jax.scipy.linalg.block_diag(*cov_matrices)  
           
         return cls(combined_cov)
+    
+    # Functions for making this a pytree
+    # Don't call this on your own
+    def tree_flatten(self) -> tuple[tuple, None]:
+        children = (self.cov_matrix,)
+        aux_data = None
+
+        return (children, aux_data)
+
+    @classmethod
+    def tree_unflatten(cls, aux_data, children) -> Self:
+        del aux_data
+        return cls(*children)
 
 
 @register_pytree_node_class
