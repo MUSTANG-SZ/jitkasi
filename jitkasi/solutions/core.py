@@ -324,6 +324,9 @@ class SolutionSet:
         return tot
 
     # Functions to make this list like
+    def __len__(self):
+        return len(self.solutions)
+
     def __getitem__(self, key: int) -> Solution:
         if not isinstance(key, int):
             raise TypeError("SolutionSet is indexed by ints")
