@@ -277,6 +277,9 @@ class TODVec:
         return self.__class__(tods, comm)
 
     # Functions to make this list like
+    def __len__(self):
+        return len(self.tods)
+
     def __getitem__(self, key: int) -> TOD:
         if not isinstance(key, int):
             raise TypeError("TODVec is indexed by ints")
