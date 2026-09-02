@@ -37,10 +37,9 @@ class TOD:
         Note that eventually this may become a cached property
         to enable on the fly pointing reconstruction for large expiriments.
         This is a child of the pytree.
-    noise : Optional[NoiseModel]
+    noise : NoiseModel
         The noise model for this TOD.
-        Should be None when no model is initialized.
-        This is aux data for the pytree.
+        Will be the identity model when no model is initialized.
     meta : dict
         Additional metadata associated with the TOD.
         This is supplied **only** for user convenience and
@@ -135,7 +134,7 @@ class TOD:
         return copy(self)
 
     def compute_noise(
-        self, noise_class: n.NoiseModel, data: Optional[Array], *args, **kwargs
+        self, noise_class: type[n.NoiseModel], data: Optional[Array], *args, **kwargs
     ):
         """
         Compute and set the noise model for this TOD.
@@ -144,7 +143,7 @@ class TOD:
 
         Parameters
         ----------
-        noise_class : NoiseModel
+        noise_class : type[NoiseModel]
             The class to use as the noise model.
             Nominally a class from `jitkasi.noise`.
         data : Optional[Array], default: None
@@ -191,14 +190,15 @@ class TOD:
     # Functions for making this a pytree
     # Don't call this on your own
     def tree_flatten(self) -> tuple[tuple, tuple]:
-        children = (self.data, self.x, self.y)
-        aux_data = (self.noise, self.meta)
+        children = (self.data, self.x, self.y, self.noise)
+        aux_data = tuple()
 
         return (children, aux_data)
 
     @classmethod
     def tree_unflatten(cls, aux_data, children) -> Self:
-        return cls(*children, *aux_data)
+        _ = aux_data
+        return cls(*children)
 
 
 @register_pytree_node_class
