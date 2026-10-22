@@ -1,7 +1,7 @@
 from copy import copy, deepcopy
 from dataclasses import dataclass, field
 from functools import partial
-from typing import Any, Iterator, Optional
+from typing import Any, Iterator
 
 import jax.numpy as jnp
 import mpi4jax
@@ -67,7 +67,7 @@ class Solution:
         _ = todvec
         pass
 
-    @jit
+    @partial(jit, static_argnames=("use_filt"))
     def from_tods(self, todvec: TODVec, use_filt: bool = True) -> Self:  # type: ignore
         _ = (todvec, use_filt)
         pass
@@ -105,14 +105,11 @@ class Solution:
         _ = other
         pass
 
-    def _get_to_op(self, other: Any) -> Array | float:
+    def _get_to_op(self, other: Any) -> Array | Any:
+        to_op = other
         if isinstance(other, type(self)):
             to_op = other.data
             self._self_check(other)
-        elif isinstance(other, (float, int)):
-            to_op = float(other)
-        else:
-            raise TypeError(f"Cannot use type {type(other)} to operate on {type(self)}")
         return to_op
 
     def __iadd__(self, other: Self | float) -> Self:
@@ -139,7 +136,7 @@ class Solution:
         return to_ret
 
     def __rsub__(self, other: Any) -> Self:
-        return self.__sub__(other)
+        return -1 * self.__sub__(other)
 
     def __imul__(self, other: Any) -> Self:
         to_sub = self._get_to_op(other)
@@ -155,10 +152,10 @@ class Solution:
         return self.__mul__(other)
 
     @jit
-    def __matmul__(self, other: Self) -> float:
+    def __matmul__(self, other: Self) -> Array:
         if not isinstance(other, type(self)):
             raise ValueError(f"Can't dot {type(other)} and {type(self)}")
-        return float(jnp.sum(self.data * other.data, axis=None))
+        return jnp.sum(self.data * other.data, axis=None)
 
     @jit
     def reduce(self) -> Self:
@@ -257,7 +254,7 @@ class SolutionSet:
                 todout.data = todout.data.at[:].add(todin.data.at[:].get())
         return todvec_out
 
-    @jit
+    @partial(jit, static_argnames=("use_filt"))
     def from_tods(self, todvec: TODVec, use_filt: bool = True) -> Self:
         """
         Project TODs into the solutions.
@@ -282,43 +279,83 @@ class SolutionSet:
         return solutionset_out
 
     # Math functions
-    def __add__(self, other: Self) -> Self:
-        if len(self.solutions) != other.solutions:
-            raise ValueError(
-                "SolutionSets can only be added if they contain the same number of solutions"
-            )
+    def __add__(self, other):
         summed = self.copy(deep=False)
-        for i in range(len(self.solutions)):
-            summed[i] = self[i] + other[i]
+
+        if isinstance(other, SolutionSet):
+            if len(self.solutions) != len(other.solutions):
+                raise ValueError(
+                    "SolutionSets can only be added if they contain "
+                    "the same number of solutions"
+                )
+
+            for i in range(len(self.solutions)):
+                summed[i] = self[i] + other[i]
+        else:
+            for i in range(len(self.solutions)):
+                summed[i] = self[i] + other
+
         return summed
 
-    def __sub__(self, other: Self) -> Self:
-        if len(self.solutions) != other.solutions:
-            raise ValueError(
-                "SolutionSets can only be subtracted if they contain the same number of solutions"
-            )
+    def __radd__(self, other):
+        return self + other
+
+    def __sub__(self, other):
         subbed = self.copy(deep=False)
-        for i in range(len(self.solutions)):
-            subbed[i] = self[i] - other[i]
+
+        if isinstance(other, SolutionSet):
+            if len(self.solutions) != len(other.solutions):
+                raise ValueError(
+                    "SolutionSets can only be subtracted if they contain "
+                    "the same number of solutions"
+                )
+
+            for i in range(len(self.solutions)):
+                subbed[i] = self[i] - other[i]
+        else:
+            for i in range(len(self.solutions)):
+                subbed[i] = self[i] - other
+
         return subbed
 
-    def __mul__(self, other: Self) -> Self:
-        if len(self.solutions) != other.solutions:
-            raise ValueError(
-                "SolutionSets can only be multiplied if they contain the same number of solutions"
-            )
-        product = self.copy(deep=False)
+    def __rsub__(self, other):
+        if isinstance(other, SolutionSet):
+            return other - self
+
+        subbed = self.copy(deep=False)
         for i in range(len(self.solutions)):
-            product[i] = self[i] * other[i]
+            subbed[i] = other - self[i]
+
+        return subbed
+
+    def __mul__(self, other):
+        product = self.copy(deep=False)
+
+        if isinstance(other, SolutionSet):
+            if len(self.solutions) != len(other.solutions):
+                raise ValueError(
+                    "SolutionSets can only be multiplied if they contain "
+                    "the same number of solutions"
+                )
+
+            for i in range(len(self.solutions)):
+                product[i] = self[i] * other[i]
+        else:
+            for i in range(len(self.solutions)):
+                product[i] = self[i] * other
+
         return product
 
+    def __rmul__(self, other):
+        return self * other
+
     @jit
-    def __matmul__(self, other: Self) -> float:
-        if len(self.solutions) != other.solutions:
+    def __matmul__(self, other: Self) -> Array:
+        if len(self.solutions) != len(other.solutions):
             raise ValueError(
                 "SolutionSets can only be dotted if they contain the same number of solutions"
             )
-        tot = 0.0
+        tot = jnp.array(0.0)
         for lsol, rsol in zip(self, other):
             tot += lsol @ rsol
         return tot

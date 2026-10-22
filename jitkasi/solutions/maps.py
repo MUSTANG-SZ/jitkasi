@@ -92,7 +92,7 @@ class WCSMap(Solution):
             tod.data = map2tod(self.data, tod.x, tod.y, self.wcs)
         return todvec_out
 
-    @jit
+    @partial(jit, static_argnames=("use_filt"))
     def from_tods(self, todvec: TODVec, use_filt: bool = True) -> Self:
         """
         Accumulate TOD samples into a map using bilinear projection.
@@ -117,6 +117,7 @@ class WCSMap(Solution):
         wcsmap_out.data = data_out
         return wcsmap_out
 
+    @partial(jit, static_argnames=("use_filt"))
     def make_hits(self, todvec: TODVec, use_filt: bool = True) -> Self:
         """
         Accumulate a bilinearly weighted coverage map.
@@ -294,13 +295,9 @@ class WCSMap(Solution):
 
         return cls(name, data, comm, jax_wcs)
 
-    def _self_check(self, other: Self):
-        if type(self.wcs) is not type(other.wcs):
-            raise ValueError("Cannot operate on WCSMaps with different projections.")
-
-        for a, b in zip(tree_leaves(self.wcs), tree_leaves(other.wcs)):
-            if not np.allclose(np.asarray(a), np.asarray(b)):
-                raise ValueError("Cannot operate on WCSMaps with different WCSs.")
+    # def _self_check(self, other: Self):
+    #     if self.wcs != other.wcs:
+    #         raise ValueError("Cannot operate on WCSMaps with different WCSs.")
 
     def tree_flatten(self) -> tuple[tuple, tuple]:
         children = (self.data, self.ivar, self.noise, self.wcs)
