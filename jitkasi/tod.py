@@ -116,6 +116,7 @@ class TOD:
     def copy(self, deep: bool = False) -> Self:
         """
         Return of copy of the TOD.
+        This will also reset the cache on the copy.
 
         Parameters
         ----------
@@ -130,8 +131,10 @@ class TOD:
             A copy of this TOD.
         """
         if deep:
-            return deepcopy(self)
-        return copy(self)
+            cp = deepcopy(self)
+        cp = copy(self)
+        cp.__dict__.pop("data_filt", None)
+        return cp
 
     def compute_noise(
         self, noise_class: type[n.NoiseModel], data: Optional[Array], *args, **kwargs
@@ -222,7 +225,6 @@ class TODVec:
     comm: MPI.Intracomm = field(default_factory=MPI.COMM_WORLD.Clone)
 
     @property
-    @jit
     def nsamp(self) -> int:
         nsamp = 0
         for tod in self.tods:
