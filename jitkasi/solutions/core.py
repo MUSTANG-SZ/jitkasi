@@ -14,19 +14,19 @@ from ..tod import TODVec
 
 
 # TODO: Figure out math for cuts and jumps
-@partial(jit, donate_argnames=["val1"])
+# @partial(jit, donate_argnames=["val1"])
 def _iadd(val1, val2):
     val1 = val1.at[:].add(val2)
     return val1
 
 
-@partial(jit, donate_argnames=["val1"])
+# @partial(jit, donate_argnames=["val1"])
 def _isub(val1, val2):
     val1 = val1.at[:].add(-1.0 * val2)
     return val1
 
 
-@partial(jit, donate_argnames=["val1"])
+# @partial(jit, donate_argnames=["val1"])
 def _imul(val1, val2):
     val1 = val1.at[:].multiply(val2)
     return val1
@@ -118,7 +118,7 @@ class Solution:
         return self
 
     def __add__(self, other: Self | float) -> Self:
-        to_ret = self.copy()
+        to_ret = self.copy(deep=True)
         to_ret += other
         return to_ret
 
@@ -131,7 +131,7 @@ class Solution:
         return self
 
     def __sub__(self, other: Any) -> Self:
-        to_ret = self.copy()
+        to_ret = self.copy(deep=True)
         to_ret -= other
         return to_ret
 
@@ -144,7 +144,7 @@ class Solution:
         return self
 
     def __mul__(self, other: Any) -> Self:
-        to_ret = self.copy()
+        to_ret = self.copy(deep=True)
         to_ret *= other
         return to_ret
 
@@ -280,7 +280,7 @@ class SolutionSet:
 
     # Math functions
     def __add__(self, other):
-        summed = self.copy(deep=False)
+        summed = self.copy(deep=True)
 
         if isinstance(other, SolutionSet):
             if len(self.solutions) != len(other.solutions):
@@ -301,7 +301,7 @@ class SolutionSet:
         return self + other
 
     def __sub__(self, other):
-        subbed = self.copy(deep=False)
+        subbed = self.copy(deep=True)
 
         if isinstance(other, SolutionSet):
             if len(self.solutions) != len(other.solutions):
@@ -322,14 +322,14 @@ class SolutionSet:
         if isinstance(other, SolutionSet):
             return other - self
 
-        subbed = self.copy(deep=False)
+        subbed = self.copy(deep=True)
         for i in range(len(self.solutions)):
             subbed[i] = other - self[i]
 
         return subbed
 
     def __mul__(self, other):
-        product = self.copy(deep=False)
+        product = self.copy(deep=True)
 
         if isinstance(other, SolutionSet):
             if len(self.solutions) != len(other.solutions):
