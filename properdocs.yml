@@ -1,6 +1,6 @@
 site_name: jitkasi
 site_url: https://mustang-sz.github.io/jitkasi/
-theme: material 
+theme: materialx
 plugins:
   - search
   - mkdocs-homepage-copier
@@ -20,6 +20,9 @@ extra:
 markdown_extensions:
   - pymdownx.arithmatex:
       generic: true
+  - admonition
+  - pymdownx.details
+  - pymdownx.superfences
 extra_javascript:
   - javascripts/mathjax.js
   - https://polyfill.io/v3/polyfill.min.js?features=es6

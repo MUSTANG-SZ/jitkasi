@@ -18,8 +18,11 @@ dependencies = ["numpy", "astropy", "jax>=0.9.1", "jaxlib>=0.9.1", "cython", "mp
 
 [project.optional-dependencies]
 docs = [
-    "mkdocs",
-    "mkdocs-material",
+    "properdocs",
+    "mkdocs-materialx",
+    "pillow",
+    "cairosvg",
+    "mike",
     "mkdocstrings[python]",
     "mkdocs-gen-files",
     "mkdocs-literate-nav",
