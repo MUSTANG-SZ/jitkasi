@@ -41,12 +41,15 @@ class WCSMap(Solution):
     noise : NoiseModel, default: NoiseI
         Map-space noise model.
     ivar : Array
-        Inverse-variance or hit-weight map. Defaults to one everywhere.
+        Inverse-variance map. Defaults to one everywhere.
+    hits : Array
+        Hits map. Defaults to zero everywhere.
     """
 
     wcs: JAXWCS
     noise: NoiseModel = field(default_factory=NoiseI)
     ivar: Array = field(default_factory=partial(jnp.ones, 1))
+    hits: Array = field(default_factory=partial(jnp.zeros, 1))
 
     def __post_init__(self):
         if self.ivar.shape != self.data.shape:
@@ -117,8 +120,8 @@ class WCSMap(Solution):
         wcsmap_out.data = data_out
         return wcsmap_out
 
-    @partial(jit, static_argnames=("use_filt"))
-    def make_hits(self, todvec: TODVec, use_filt: bool = True) -> Self:
+    @partial(jit, static_argnames=("make_ivar"))
+    def make_hits(self, todvec: TODVec, make_ivar: bool = True) -> Self:
         """
         Accumulate a bilinearly weighted coverage map.
 
@@ -126,25 +129,49 @@ class WCSMap(Solution):
         ----------
         todvec : TODVec
             TODs containing the pointing information.
-        use_filt : bool, default: True
-            If True, apply each TOD's noise model to a vector of ones
-            before accumulation.
+        make_ivar: bool, default: True
+            If True, apply each TOD's detector to a vector of ones
+            before accumulation and store the result in `ivar`.
 
         Returns
         -------
         wcsmap_out : WCSMap
             A shallow copy of this map with the accumulated coverage
-            weights stored in `ivar`.
+            weights stored in `ivar` or `hits`.
         """
-        ivar = jnp.zeros_like(self.data)
+        out = jnp.zeros_like(self.data)
         for tod in todvec:
             data = jnp.ones_like(tod.data)
-            if use_filt:
-                data = tod.noise.apply_noise(data)
-            ivar = tod2map(ivar, data, tod.x, tod.y, self.wcs)
+            if make_ivar:
+                data = data.at[:].multiply(tod.noise.det_weights)
+            out = tod2map(out, data, tod.x, tod.y, self.wcs)
         wcsmap_out = self.copy(deep=False)
-        wcsmap_out.ivar = ivar
+        if make_ivar:
+            wcsmap_out.ivar = out
+        else:
+            wcsmap_out.hits = out
         return wcsmap_out
+
+    @jit
+    def make_ivar(self, todvec: TODVec) -> Self:
+        """
+        Accumulate the ivar map.
+
+        Parameters
+        ----------
+        todvec : TODVec
+            TODs containing the pointing information.
+        make_ivar: bool, default: True
+            If True, apply each TOD's detector to a vector of ones
+            before accumulation and store the result in `ivar`.
+
+        Returns
+        -------
+        wcsmap_out : WCSMap
+            A shallow copy of this map with the accumulated
+            weights stored in `ivar`.
+        """
+        return self.make_hits(todvec, True)
 
     @cached_property
     def data_filt(self) -> Array:
@@ -300,12 +327,12 @@ class WCSMap(Solution):
     #         raise ValueError("Cannot operate on WCSMaps with different WCSs.")
 
     def tree_flatten(self) -> tuple[tuple, tuple]:
-        children = (self.data, self.ivar, self.noise, self.wcs)
+        children = (self.data, self.ivar, self.hits, self.noise, self.wcs)
         aux_data = (self.name, self.comm)
         return children, aux_data
 
     @classmethod
     def tree_unflatten(cls, aux_data, children) -> Self:
         name, comm = aux_data
-        data, ivar, noise, wcs = children
-        return cls(name, data, comm, wcs, noise, ivar)
+        data, ivar, hits, noise, wcs = children
+        return cls(name, data, comm, wcs, noise, ivar, hits)
