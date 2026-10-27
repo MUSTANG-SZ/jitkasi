@@ -53,7 +53,7 @@ def gauss_smooth_1d(dat: Array, fwhm: float) -> Array:
     ----------
     dat : Array
         The data to smooth.
-    fwmh : float
+    fwhm : float
         The full width half max of the gaussian used to smooth.
 
     Returns
