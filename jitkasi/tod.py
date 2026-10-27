@@ -37,7 +37,7 @@ class TOD:
         Note that eventually this may become a cached property
         to enable on the fly pointing reconstruction for large expiriments.
         This is a child of the pytree.
-    noise : NoiseModel
+    noise : TODNoiseModel
         The noise model for this TOD.
         Will be the identity model when no model is initialized.
     meta : dict
@@ -51,7 +51,7 @@ class TOD:
     data: Array
     x: Array
     y: Array
-    noise: n.NoiseModel = field(default_factory=n.NoiseI)
+    noise: n.TODNoiseModel = field(default_factory=n.NoiseI)
     meta: dict = field(default_factory=dict)
 
     def __post_init__(self):
@@ -137,7 +137,7 @@ class TOD:
         return cp
 
     def compute_noise(
-        self, noise_class: type[n.NoiseModel], data: Optional[Array], *args, **kwargs
+        self, noise_class: type[n.TODNoiseModel], data: Optional[Array], *args, **kwargs
     ):
         """
         Compute and set the noise model for this TOD.
@@ -146,7 +146,7 @@ class TOD:
 
         Parameters
         ----------
-        noise_class : type[NoiseModel]
+        noise_class : type[n.TODNoiseModel]
             The class to use as the noise model.
             Nominally a class from `jitkasi.noise`.
         data : Optional[Array], default: None

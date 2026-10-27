@@ -59,7 +59,7 @@ def _pcg_step(step, pars):
     symmetric positive definite and the preconditioner represents
     an approximation to $A$ inverse.
     """
-    del step
+    _ = step
 
     todvec, precon, p, x, r, z, rz = pars
 
