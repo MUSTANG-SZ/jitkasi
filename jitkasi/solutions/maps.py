@@ -336,3 +336,76 @@ class WCSMap(Solution):
         name, comm = aux_data
         data, ivar, hits, noise, wcs = children
         return cls(name, data, comm, wcs, noise, ivar, hits)
+
+
+# Map based noise classes
+@register_pytree_node_class
+@dataclass
+class NoiseWhite:
+    """
+    A simple noise model with only white noise.
+    Here we just weigh each pixel individually.
+    This class is a registered pytree so it is JITable with JAX.
+
+    Attributes
+    ----------
+    weights: Array
+        The per-pixel weights computed from the ivar map.
+        This is a child of the pytree.
+    """
+
+    weights: Array
+
+    @jit
+    def apply_noise(self, dat: Array) -> Array:
+        """
+        Apply the noise model.
+        In this case this is just rescaling each pixel by its weight.
+
+        Parameters
+        ----------
+        dat : Array
+            The data to apply the noise model to.
+            Should be 2d with `dat.shape == self.weights.shape`.
+
+        Returns
+        -------
+        dat_filt : Array
+            The data with the noise model applied.
+        """
+        return dat * self.weights
+
+    @classmethod
+    @partial(jit, static_argnums=(0,))
+    def compute(cls, dat: Array, ivar: Array) -> Self:
+        """
+        Compute this noise model based on some input data.
+        This requires you to have a ivar map for your map.
+
+        Parameters
+        ----------
+        dat : Array
+            The map data.
+            This is only here for API compatibility.
+        ivar : Array
+            The ivar map to use as weights.
+
+        Returns
+        -------
+        noise_model : NoiseWhite
+            An instance of NoiseWhite with the computed noise model.
+        """
+        _ = dat
+        return cls(ivar)
+
+    # Functions for making this a pytree
+    # Don't call this on your own
+    def tree_flatten(self) -> tuple[tuple, None]:
+        children = (self.weights,)
+        aux_data = None
+        return (children, aux_data)
+
+    @classmethod
+    def tree_unflatten(cls, aux_data, children) -> Self:
+        del aux_data
+        return cls(*children)
