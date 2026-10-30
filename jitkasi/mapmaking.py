@@ -1,6 +1,8 @@
 """
-Core mapmaking functions
+Core mapmaking functions.
 """
+
+from functools import partial
 
 from jax import jit, lax
 
@@ -10,86 +12,82 @@ from .tod import TODVec
 
 @jit
 def make_lhs(solutionset: SolutionSet, todvec: TODVec) -> SolutionSet:
-    """
-    Make the left hand side of the map maker equation: $P^{T}N^{-1}Pm$.
-    To do this we project the Solutions into TODs, apply the noise model,
-    and project back to Solutions.
+    r"""
+    Make the left-hand side of the mapmaker equation: $P^T N^{-1} P m$.
 
     Parameters
     ----------
     solutionset : SolutionSet
-        SolutionSet containing the things you are trying to solve for.
-        This is not modified in place.
+        Current mapmaking vector. Not modified in place.
     todvec : TODVec
-        TODVec containing TODs to project into and from.
-        Only used for pointing and shape information,
-        not modified in place.
+        TODs providing pointing and noise information.
 
     Returns
     -------
     lhs : SolutionSet
-        A SolutionSet for the left hand side of the map maker equation.
+        The result of applying P.T N^-1 P to `solutionset`.
     """
     projected = solutionset.to_tods(todvec)
-    lhs = solutionset.from_tods(projected, True)
-    return lhs
+    return solutionset.from_tods(projected, use_filt=True)
 
 
 @jit
 def make_rhs(solutionset: SolutionSet, todvec: TODVec) -> SolutionSet:
-    """
-    Make the right hand side of the map maker equation: $P^{T}N^{-1}d$.
-    To do this we apply the noise model to some TODs and project into Solutions.
+    r"""
+    Make the right-hand side of the mapmaker equation: $P^T N^{-1} d$.
 
     Parameters
     ----------
     solutionset : SolutionSet
-        SolutionSet containing the things you are trying to solve for.
-        This is not modified in place.
+        Solution templates defining the unknowns.
     todvec : TODVec
-        TODVec containing TODs to project from.
-        This is not modified in place.
+        TODs containing the observed data and noise models.
 
     Returns
     -------
     rhs : SolutionSet
-        A SolutionSet for the right hand side of the map maker equation.
+        The noise-weighted data projected into solution space.
     """
-    rhs = solutionset.from_tods(todvec, True)
-    return rhs
+    return solutionset.from_tods(todvec, use_filt=True)
 
 
 def _pcg_step(step, pars):
+    r"""
+    Perform one preconditioned conjugate-gradient iteration.
+
+    The system solved is $A x = b$, where $A$ is assumed to be
+    symmetric positive definite and the preconditioner represents
+    an approximation to $A$ inverse.
+    """
     _ = step
-    todvec, precon, p, x, r, zr = pars
 
-    # Compute pAp
+    todvec, precon, p, x, r, z, rz = pars
+
+    # Apply A = P.T N^-1 P to the current search direction.
     Ap = make_lhs(p, todvec)
+
+    # Compute the step length.
     pAp = p @ Ap
+    alpha = rz / pAp
 
-    # Compute alpha_k
-    alpha = zr / pAp
+    # Update the solution and residual.
+    x = x + alpha * p
+    r = r - alpha * Ap
 
-    # Update guess using alpha
-    x = p - alpha * x
-
-    # Write down next remainder r_k+1
-    r = Ap - alpha * r
-
-    # Apply preconditioner
+    # Apply the inverse preconditioner to the new residual.
     z = precon * r
 
-    # compute new z_k+1
-    zr_old = zr
-    zr = r @ z
+    # Compute the new residual-preconditioned-residual product.
+    rz_new = r @ z
 
-    # compute beta_k, which is used to compute p_k+1
-    beta = zr / zr_old
+    # Update the search direction.
+    beta = rz_new / rz
+    p = z + beta * p
 
-    # compute new p_k+1
-    p = p + beta * p
+    return todvec, precon, p, x, r, z, rz_new
 
 
+@partial(jit, static_argnames=("maxiter",))
 def run_pcg(
     rhs: SolutionSet,
     todvec: TODVec,
@@ -97,55 +95,58 @@ def run_pcg(
     precon: SolutionSet,
     maxiter: int = 100,
 ) -> SolutionSet:
-    """
-    Solve using Preconditioned Conjugate Gradient (PCG).
-    This iteratively approximates the solution to $Ax = b$,
-    where $A$ is a matrix and $x$ and $b$ are vectors.
+    r"""
+    Solve the mapmaking system using preconditioned conjugate gradients.
 
-    In ML mapmaking we are solving $P^{T}N^{-1}Pm = P^{T}N^{-1}d$
-    so $m$ is $x$ in the general linear equation and is what we are solving for
-    (usually a map, but perhaps some simultanious terms such as cuts).
+    The system we are solving is:
+
+    $$
+    P^T N^{-1} P m = P^T N^{-1} d
+    $$
 
     Parameters
     ----------
     rhs : SolutionSet
-        The right hand side of the mapmaker equation: $P^{T}N{-1}d$.
-        This is $b$ in the general linear equation.
-    todvec : TODvec
-        TODVec containing the TODs we are solving with.
-        This is $d$ in the mapmaker equation.
+        Right-hand side, $P^T N^{-1} d$.
+    todvec : TODVec
+        TODs providing pointing, data, and noise information.
     x0 : SolutionSet
-        Initial guess for the solution.
-    precon : SolutionsSet
-        Preconditioner to apply at easy iteration.
-        This makes things more invertible.
+        Initial solution estimate.
+    precon : SolutionSet
+        Approximation to the inverse system operator. Applied as
+        `precon * residual`.
     maxiter : int, default: 100
-        The number of PCG iters to run
-
+        Maximum number of iterations.
 
     Returns
     -------
     x : SolutionSet
-        The solved SolutionSet.
-        This is $m$ in the mapmaker equation.
+        Approximate solution after `maxiter` iterations.
     """
-    lhs = make_lhs(x0, todvec)
+    if maxiter < 0:
+        raise ValueError("maxiter must be non-negative.")
 
-    # compute the remainder r_0
+    # Initial residual: r_0 = b - A x_0.
+    lhs = make_lhs(x0, todvec)
     r = rhs - lhs
+
+    # Apply the inverse preconditioner.
     z = precon * r
 
-    # Initial p_0 = z_0 = M*r_0
+    # Initial search direction.
     p = z.copy(deep=True)
 
-    # compute z*r, which is used for computing alpha
-    zr = r @ z
-    # make a copy of our initial guess
+    # Initial inner product used to compute alpha and beta.
+    rz = r @ z
+
+    # Preserve the initial guess.
     x = x0.copy(deep=True)
 
-    # Run for maxiter steps
-    todvec, precon, p, x, r, zr = lax.fori_loop(
-        0, maxiter, _pcg_step, (todvec, precon, p, x, r, zr), unroll=True
-    )
+    carry = (todvec, precon, p, x, r, z, rz)
 
+    # Fixed iteration count; keep the loop rolled to avoid code
+    # expansion for large iteration counts.
+    carry = lax.fori_loop(0, maxiter, _pcg_step, carry)
+
+    _, _, _, x, _, _, _ = carry
     return x

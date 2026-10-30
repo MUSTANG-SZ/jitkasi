@@ -22,6 +22,12 @@ class NoiseModel(Protocol):
     def compute(cls, dat: Array, /) -> Self: ...
 
 
+@runtime_checkable
+class TODNoiseModel(NoiseModel, Protocol):
+    @property
+    def det_weights(self) -> Array: ...
+
+
 @register_pytree_node_class
 @dataclass
 class NoiseI:
@@ -46,6 +52,19 @@ class NoiseI:
             This is not a copy.
         """
         return dat
+
+    @property
+    def det_weights(self) -> Array:
+        """
+        Computes the det weights.
+        This is just all 1s.
+
+        Returns
+        -------
+        det_weights : Array
+            The detector weights.
+        """
+        return jnp.ones(1)
 
     @classmethod
     def compute(cls, dat: Array) -> Self:
@@ -110,6 +129,19 @@ class NoiseWhite:
             The data with the noise model applied.
         """
         return dat * self.weights[..., None]
+
+    @property
+    def det_weights(self) -> Array:
+        """
+        Computes the det weights.
+        This is just self.weights.
+
+        Returns
+        -------
+        det_weights : Array
+            The detector weights.
+        """
+        return self.weights[..., None]
 
     @classmethod
     @partial(jit, static_argnums=(0,))
@@ -203,6 +235,23 @@ class NoiseSmoothedSVD:
         dat_filt = dat_filt.at[:, 0].multiply(0.50)
         dat_filt = dat_filt.at[:, -1].multiply(0.50)
         return dat_filt
+
+    @property
+    @jit
+    def det_weights(self) -> Array:
+        """
+        Computes the det weights.
+        This is just self.weights.
+
+        Returns
+        -------
+        det_weights : Array
+            The detector weights.
+        """
+        mode_wt = jnp.sum(self.filt_spectrum, axis=1)
+        tmp = jnp.dot(self.v.T, jnp.dot(jnp.diag(mode_wt), self.v))
+        dw = jnp.diag(tmp).copy() * 2.0
+        return dw[..., None]
 
     @classmethod
     @partial(jit, static_argnums=(0,))
