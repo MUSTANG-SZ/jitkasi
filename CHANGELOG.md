@@ -1,3 +1,22 @@
+## 3.0.0 (2026-10-30)
+
+### Feat
+
+- add explicit hits map and fix ivar calc
+- add det weihgts
+- turns out we need to support arbitrary poles, also adds a header
+- updated map solution to new projection code
+- add generic bilinear proj operators
+- add jax compatible WCS container
+
+### Fix
+
+- restore NoiseWhite
+- dont modify inplace for non inplace math
+- lots of math typos
+- make math more jit friendly
+- reset cache for copies and dont jit nsamp
+
 ## 2.1.1 (2026-10-07)
 
 ### Fix
