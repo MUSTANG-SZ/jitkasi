@@ -161,9 +161,6 @@ class WCSMap(Solution):
         ----------
         todvec : TODVec
             TODs containing the pointing information.
-        make_ivar: bool, default: True
-            If True, apply each TOD's detector to a vector of ones
-            before accumulation and store the result in `ivar`.
 
         Returns
         -------
