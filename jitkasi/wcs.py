@@ -664,3 +664,163 @@ class JAXCAR(JAXWCS):
         ra, dec = _rotate_native_to_celestial(phi, theta, matrix)
 
         return ra, dec
+
+
+@register_pytree_node_class
+@JAXWCS.register_projection("TAN")
+@dataclass(frozen=True)
+class JAXTAN(JAXWCS):
+    """
+    JAX implementation of the TAN celestial map projection.
+
+    Celestial coordinates are transformed into native spherical coordinates
+    using the rotation matrix defined by CRVAL, LONPOLE, and LATPOLE.
+    The native spherical coordinates are then projected onto the tangent
+    plane using the gnomonic projection.
+
+    Pixel coordinates returned by this class are zero-based, consistent
+    with NumPy indexing. CRPIX follows the FITS one-based convention.
+
+    This implementation does not support SIP distortions or distortion
+    lookup tables.
+    """
+
+    projection: ClassVar[str] = "TAN"
+
+    @classmethod
+    def _from_astropy(cls, wcs: WCS) -> "JAXTAN":
+        """
+        Construct a JAXTAN instance from an Astropy WCS.
+
+        Parameters
+        ----------
+        wcs : WCS
+            The input Astropy TAN WCS.
+
+        Returns
+        -------
+        JAXTAN
+            The corresponding JAX TAN projector.
+
+        Raises
+        ------
+        NotImplementedError
+            If the axis ordering is unsupported or distortion terms
+            are present.
+        """
+        ctype = tuple(str(c).upper() for c in wcs.wcs.ctype)
+
+        if not (ctype[0].startswith("RA---TAN") and ctype[1].startswith("DEC--TAN")):
+            raise NotImplementedError(f"Unsupported TAN axis ordering: {ctype}.")
+
+        if (
+            getattr(wcs, "sip", None) is not None
+            or getattr(wcs, "cpdis1", None) is not None
+            or getattr(wcs, "cpdis2", None) is not None
+            or getattr(wcs, "det2im1", None) is not None
+            or getattr(wcs, "det2im2", None) is not None
+        ):
+            raise NotImplementedError("TAN distortion terms are not supported.")
+
+        return cls(**cls._from_astropy_parameters(wcs))
+
+    def _rotation_matrix(self):
+        """
+        Construct the rotation matrix from native to celestial coordinates.
+
+        Returns
+        -------
+        Float[Array, "3 3"]
+            Rotation matrix constructed from CRVAL, LONPOLE, and LATPOLE.
+        """
+        return _native_to_celestial_matrix(
+            jnp.deg2rad(self.crval),
+            jnp.deg2rad(self.lonpole),
+            jnp.deg2rad(self.latpole),
+        )
+
+    @jax.jit
+    def world_to_pixel(
+        self, ra_rad: Float[Array, "..."], dec_rad: Float[Array, "..."]
+    ) -> tuple[Float[Array, "..."], Float[Array, "..."]]:
+        """
+        Convert celestial coordinates to TAN pixel coordinates.
+
+        Celestial coordinates are first rotated into the native coordinate
+        system. The native spherical coordinates are then projected onto
+        the tangent plane using the gnomonic projection.
+
+        The linear transformation follows the FITS convention: `intermediate = PC @ diag(CDELT) @ (pixel - CRPIX)`
+
+        Pixel coordinates are returned in zero-based convention.
+
+        Parameters
+        ----------
+        ra_rad : Float[Array, "..."]
+            Right ascension in radians.
+        dec_rad : Float[Array, "..."]
+            Declination in radians.
+
+        Returns
+        -------
+        xpix, ypix : Float[Array, "..."]
+            Zero-based pixel coordinates.
+        """
+        matrix = self._rotation_matrix()
+
+        phi, theta = _rotate_celestial_to_native(ra_rad, dec_rad, matrix)
+        sin_theta = jnp.sin(theta)
+
+        # Gnomonic projection
+        x = jnp.cos(theta) * jnp.sin(phi) / sin_theta
+        y = -jnp.cos(theta) * jnp.cos(phi) / sin_theta
+        intermediate = jnp.stack((jnp.rad2deg(x), jnp.rad2deg(y)), axis=0)
+        scaled = intermediate / self.cdelt.reshape((2,) + (1,) * ra_rad.ndim)
+        offset = jnp.einsum("ij,j...->i...", jnp.linalg.inv(self.pc), scaled)
+        pix = offset + self.crpix.reshape((2,) + (1,) * ra_rad.ndim) - 1.0
+
+        return pix[0], pix[1]
+
+    @jax.jit
+    def pixel_to_world(
+        self, xpix: Float[Array, "..."], ypix: Float[Array, "..."]
+    ) -> tuple[Float[Array, "..."], Float[Array, "..."]]:
+        """
+        Convert TAN pixel coordinates to celestial coordinates.
+
+        Pixel coordinates are first transformed into intermediate
+        tangent-plane coordinates. The inverse gnomonic projection then
+        produces native spherical coordinates, which are rotated into
+        celestial coordinates.
+
+        Parameters
+        ----------
+        xpix : Float[Array, "..."]
+            Zero-based pixel coordinates along the first map axis.
+        ypix : Float[Array, "..."]
+            Zero-based pixel coordinates along the second map axis.
+
+        Returns
+        -------
+        ra_rad : Float[Array, "..."]
+            Right ascension in radians, wrapped into [0, 2*pi).
+        dec_rad : Float[Array, "..."]
+            Declination in radians.
+        """
+        pix = jnp.stack((xpix, ypix), axis=0)
+        offset = pix + 1.0 - self.crpix.reshape((2,) + (1,) * xpix.ndim)
+        intermediate = jnp.einsum(
+            "ij,j...->i...",
+            self.pc,
+            offset * self.cdelt.reshape((2,) + (1,) * xpix.ndim),
+        )
+        x = jnp.deg2rad(intermediate[0])
+        y = jnp.deg2rad(intermediate[1])
+
+        # Inverse gnomonic projection
+        phi = jnp.arctan2(x, -y)
+        theta = jnp.arctan2(1.0, jnp.sqrt(x * x + y * y))
+        matrix = self._rotation_matrix()
+        ra, dec = _rotate_native_to_celestial(phi, theta, matrix)
+
+        return ra, dec
