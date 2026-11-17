@@ -8,7 +8,6 @@ import jax.numpy as jnp
 import minkasi
 import numpy as np
 from astropy.io import fits
-from astropy.wcs import WCS
 from minkasi.tools import presets_by_source as pbs
 from mpi4py import MPI
 from witch.external.minkasi.utils import from_minkasi_tod

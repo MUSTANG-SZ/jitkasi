@@ -5,7 +5,7 @@ from typing import Callable
 
 import jax.numpy as jnp
 import numpy as np
-from jax import Array, ShapeDtypeStruct, jit, lax, pure_callback
+from jax import Array, ShapeDtypeStruct, jit, pure_callback
 from jax.scipy.special import erfinv
 from jax.tree_util import register_pytree_node_class
 from numpy.typing import NDArray

@@ -5,7 +5,7 @@ from typing import Iterator, Optional
 
 import jax.numpy as jnp
 import mpi4jax
-from jax import Array, jit
+from jax import Array
 from jax.tree_util import register_pytree_node_class
 from mpi4py import MPI
 from typing_extensions import Self

@@ -13,7 +13,7 @@ import mpi4jax
 import numpy as np
 from astropy.wcs import WCS
 from jax import Array, jit
-from jax.tree_util import register_pytree_node_class, tree_leaves
+from jax.tree_util import register_pytree_node_class
 from mpi4py import MPI
 from typing_extensions import Self
 
