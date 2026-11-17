@@ -1,3 +1,9 @@
+## 3.1.1 (2026-11-17)
+
+### Fix
+
+- correct the TAN projection and the PC/CDELT order in pixel_to_world
+
 ## 3.1.0 (2026-11-17)
 
 ### Feat
