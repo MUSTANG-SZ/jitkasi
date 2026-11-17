@@ -60,21 +60,73 @@ TAN_CASES = [
     ),
     (
         "rotated_pc",
-        dict(crval=[175.7, 15.5], cdelt=2.5 / ARCSEC, crpix=[50.5, 40.5], shape=(100, 80), rot=30.0),
+        dict(
+            crval=[175.7, 15.5],
+            cdelt=2.5 / ARCSEC,
+            crpix=[50.5, 40.5],
+            shape=(100, 80),
+            rot=30.0,
+        ),
     ),
-    ("high_dec", dict(crval=[40.0, 75.0], cdelt=2.5 / ARCSEC, crpix=[50.5, 40.5], shape=(100, 80))),
-    ("south", dict(crval=[300.0, -60.0], cdelt=2.5 / ARCSEC, crpix=[50.5, 40.5], shape=(100, 80))),
-    ("ra_wrap", dict(crval=[0.01, 5.0], cdelt=2.5 / ARCSEC, crpix=[50.5, 40.5], shape=(100, 80))),
+    (
+        "high_dec",
+        dict(
+            crval=[40.0, 75.0], cdelt=2.5 / ARCSEC, crpix=[50.5, 40.5], shape=(100, 80)
+        ),
+    ),
+    (
+        "south",
+        dict(
+            crval=[300.0, -60.0],
+            cdelt=2.5 / ARCSEC,
+            crpix=[50.5, 40.5],
+            shape=(100, 80),
+        ),
+    ),
+    (
+        "ra_wrap",
+        dict(
+            crval=[0.01, 5.0], cdelt=2.5 / ARCSEC, crpix=[50.5, 40.5], shape=(100, 80)
+        ),
+    ),
     # Maps centered exactly on a celestial pole: wcslib uses LONPOLE = 0 at the
     # north pole, and the rotation construction is at its most degenerate here
-    ("north_pole", dict(crval=[30.0, 90.0], cdelt=2.5 / ARCSEC, crpix=[50.5, 50.5], shape=(100, 100))),
-    ("south_pole", dict(crval=[30.0, -90.0], cdelt=2.5 / ARCSEC, crpix=[50.5, 50.5], shape=(100, 100))),
+    (
+        "north_pole",
+        dict(
+            crval=[30.0, 90.0], cdelt=2.5 / ARCSEC, crpix=[50.5, 50.5], shape=(100, 100)
+        ),
+    ),
+    (
+        "south_pole",
+        dict(
+            crval=[30.0, -90.0],
+            cdelt=2.5 / ARCSEC,
+            crpix=[50.5, 50.5],
+            shape=(100, 100),
+        ),
+    ),
     # Reference pixel on a pixel center, so one pixel sits exactly on the pole
-    ("north_pole_on_pixel", dict(crval=[30.0, 90.0], cdelt=2.5 / ARCSEC, crpix=[51.0, 51.0], shape=(100, 100))),
-    ("wide_field", dict(crval=[175.7, 15.5], cdelt=30 / ARCSEC, crpix=[60.5, 60.5], shape=(120, 120))),
+    (
+        "north_pole_on_pixel",
+        dict(
+            crval=[30.0, 90.0], cdelt=2.5 / ARCSEC, crpix=[51.0, 51.0], shape=(100, 100)
+        ),
+    ),
+    (
+        "wide_field",
+        dict(
+            crval=[175.7, 15.5], cdelt=30 / ARCSEC, crpix=[60.5, 60.5], shape=(120, 120)
+        ),
+    ),
     (
         "crpix_off_map",
-        dict(crval=[175.7, 15.5], cdelt=2.5 / ARCSEC, crpix=[-200.0, 300.0], shape=(100, 80)),
+        dict(
+            crval=[175.7, 15.5],
+            cdelt=2.5 / ARCSEC,
+            crpix=[-200.0, 300.0],
+            shape=(100, 80),
+        ),
     ),
 ]
 
@@ -82,15 +134,28 @@ CAR_CASES = [
     # ACT-like: reference on the equator, far from the map
     (
         "act_like",
-        dict(crval=[175.7, 0.0], cdelt=30 / ARCSEC, crpix=[-5000.5, 400.5], shape=(100, 80)),
+        dict(
+            crval=[175.7, 0.0],
+            cdelt=30 / ARCSEC,
+            crpix=[-5000.5, 400.5],
+            shape=(100, 80),
+        ),
     ),
     (
         "rotated_pc",
-        dict(crval=[175.7, 0.0], cdelt=30 / ARCSEC, crpix=[50.5, 40.5], shape=(100, 80), rot=30.0),
+        dict(
+            crval=[175.7, 0.0],
+            cdelt=30 / ARCSEC,
+            crpix=[50.5, 40.5],
+            shape=(100, 80),
+            rot=30.0,
+        ),
     ),
 ]
 
-ALL_CASES = [("TAN", n, kw) for n, kw in TAN_CASES] + [("CAR", n, kw) for n, kw in CAR_CASES]
+ALL_CASES = [("TAN", n, kw) for n, kw in TAN_CASES] + [
+    ("CAR", n, kw) for n, kw in CAR_CASES
+]
 IDS = [f"{proj}-{name}" for proj, name, _ in ALL_CASES]
 
 
@@ -109,7 +174,9 @@ def angular_sep_arcsec(ra1, dec1, ra2, dec2):
 
 def pixel_grid(shape):
     return np.meshgrid(
-        np.arange(shape[0], dtype=float), np.arange(shape[1], dtype=float), indexing="ij"
+        np.arange(shape[0], dtype=float),
+        np.arange(shape[1], dtype=float),
+        indexing="ij",
     )
 
 
@@ -181,5 +248,62 @@ def test_to_header_matches_original(case):
     xx, yy = pixel_grid(shape)
     ra_ref, dec_ref = astropy_world(w, xx, yy)
     ra, dec = astropy_world(WCS(jw.to_header()), xx, yy)
+    sep = angular_sep_arcsec(ra, dec, ra_ref, dec_ref)
+    assert np.max(sep) < SKY_TOL
+
+
+# Direct construction: only CRPIX, CRVAL, CDELT and PC are given, so LONPOLE and
+# LATPOLE take the class defaults and have to resolve to the FITS defaults that
+# wcslib uses (e.g. LONPOLE = 0 rather than 180 for TAN at the north pole).
+DIRECT_CASES = [
+    ("TAN", "xmm_moo1142"),
+    ("TAN", "north_pole"),
+    ("TAN", "south_pole"),
+    ("TAN", "north_pole_on_pixel"),
+    ("CAR", "act_like"),
+]
+
+
+@pytest.fixture(params=DIRECT_CASES, ids=[f"{p}-{n}" for p, n in DIRECT_CASES])
+def direct_case(request):
+    proj, name = request.param
+    kwargs = dict(TAN_CASES if proj == "TAN" else CAR_CASES)[name]
+    w, shape = make_wcs(proj, **kwargs)
+    cls = {"TAN": JAXTAN, "CAR": JAXCAR}[proj]
+    jw = cls(
+        crpix=jnp.asarray(w.wcs.crpix),
+        crval=jnp.asarray(w.wcs.crval),
+        cdelt=jnp.asarray(w.wcs.cdelt),
+        pc=jnp.asarray(w.wcs.get_pc()),
+    )
+    return w, jw, shape
+
+
+def test_direct_construction_pixel_to_world(direct_case):
+    w, jw, shape = direct_case
+    xx, yy = pixel_grid(shape)
+    ra_ref, dec_ref = astropy_world(w, xx, yy)
+    ra, dec = jw.pixel_to_world(jnp.asarray(xx), jnp.asarray(yy))
+    sep = angular_sep_arcsec(np.asarray(ra), np.asarray(dec), ra_ref, dec_ref)
+    assert np.max(sep) < SKY_TOL, f"max offset from astropy {np.max(sep):.3g} arcsec"
+
+
+def test_direct_construction_world_to_pixel(direct_case):
+    w, jw, shape = direct_case
+    xx, yy = pixel_grid(shape)
+    ra_ref, dec_ref = astropy_world(w, xx, yy)
+    xpix, ypix = jw.world_to_pixel(jnp.asarray(ra_ref), jnp.asarray(dec_ref))
+    dpix = np.hypot(np.asarray(xpix) - xx, np.asarray(ypix) - yy)
+    assert np.max(dpix) < PIX_TOL, f"max offset from astropy {np.max(dpix):.3g} px"
+
+
+def test_direct_construction_to_header(direct_case):
+    # The header has to contain the resolved LONPOLE, never NaN
+    w, jw, shape = direct_case
+    hdr = jw.to_header()
+    assert np.isfinite(hdr["LONPOLE"])
+    xx, yy = pixel_grid(shape)
+    ra_ref, dec_ref = astropy_world(w, xx, yy)
+    ra, dec = astropy_world(WCS(hdr), xx, yy)
     sep = angular_sep_arcsec(ra, dec, ra_ref, dec_ref)
     assert np.max(sep) < SKY_TOL
