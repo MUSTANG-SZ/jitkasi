@@ -40,7 +40,12 @@ def _unit_vector(lon, lat):
     )
 
 
-def _native_to_celestial_matrix(crval, lonpole, latpole):
+def _native_to_celestial_matrix(
+    crval: Float[Array, "2"],
+    lonpole: Float[Array, ""],
+    latpole: Float[Array, ""],
+    projection: str,
+) -> Float[Array, "3 3"]:
     r"""
     Construct the rotation matrix from native to celestial coordinates.
     The rotation matrix transforms a native Cartesian unit vector
@@ -51,8 +56,13 @@ def _native_to_celestial_matrix(crval, lonpole, latpole):
     \boldsymbol{c} = R\boldsymbol{n}.
     $$
 
-    The reference coordinate and pole parameters determine the orientation
-    of the native and celestial coordinate systems.
+    The rotation is fixed by two conditions (Calabretta & Greisen 2002, sect. 2):
+
+    1. The native reference point maps to CRVAL. This is native
+       $(\phi_0, \theta_0) = (0, 0)$ for CAR and the native pole,
+       $(\phi_0, \theta_0) = (0, 90^\circ)$, for zenithal projections such as TAN.
+    2. The celestial north pole sits at native coordinates
+       $(\phi_p, \theta_p)$ = (`lonpole`, `latpole`).
 
     Parameters
     ----------
@@ -62,19 +72,34 @@ def _native_to_celestial_matrix(crval, lonpole, latpole):
         Native longitude of the celestial north pole in radians.
     latpole : Float[Array, ""]
         Native latitude of the celestial north pole in radians.
+        This is the resolved LATPOLE for CAR, and $\delta_0$ (the CRVAL
+        latitude) for zenithal projections such as TAN.
+    projection : str
+        Projection code, such as ``"CAR"`` or ``"TAN"``.
+        Sets which native vector is mapped to CRVAL.
 
     Returns
     -------
     Float[Array, "3 3"]
         Rotation matrix mapping native Cartesian coordinates to celestial
         Cartesian coordinates.
+
+    Raises
+    ------
+    ValueError
+        If the projection code is unsupported.
     """
     alpha0, delta0 = crval
 
     n = _unit_vector(lonpole, latpole)
     r = _unit_vector(alpha0, delta0)
 
-    e0 = jnp.array([1.0, 0.0, 0.0], dtype=crval.dtype)
+    if projection == "CAR":
+        e0 = jnp.array([1.0, 0.0, 0.0], dtype=crval.dtype)
+    elif projection == "TAN":
+        e0 = jnp.array([0.0, 0.0, 1.0], dtype=crval.dtype)
+    else:
+        raise ValueError(f"Unsupported projection {projection!r}.")
     z = jnp.array([0.0, 0.0, 1.0], dtype=crval.dtype)
 
     native_dot = jnp.dot(e0, n)
@@ -86,11 +111,14 @@ def _native_to_celestial_matrix(crval, lonpole, latpole):
     native_norm = jnp.linalg.norm(native_perp)
     celestial_norm = jnp.linalg.norm(celestial_perp)
 
-    safe_native_norm = jnp.maximum(native_norm, 1e-15)
-    safe_celestial_norm = jnp.maximum(celestial_norm, 1e-15)
-
-    u1 = native_perp / safe_native_norm
-    v1 = celestial_perp / safe_celestial_norm
+    # Do not put a floor on these norms. For a map centered exactly on a celestial
+    # pole both perpendicular vectors are cos(fl(pi/2)) ~ 6.1e-17 times the correct
+    # unit direction (fl(pi/2) is not exactly pi/2, so the cosine is not exactly 0).
+    # Dividing by the true norm recovers that direction, a floor (e.g. 1e-15) would
+    # leave them far from unit length and give a wrong rotation.
+    # Only an exactly zero norm is guarded, to avoid NaNs.
+    u1 = native_perp / jnp.where(native_norm > 0, native_norm, 1.0)
+    v1 = celestial_perp / jnp.where(celestial_norm > 0, celestial_norm, 1.0)
 
     u2 = jnp.cross(e0, u1)
     v2 = jnp.cross(r, v1)
@@ -117,7 +145,7 @@ def _rotate_native_to_celestial(phi, theta, matrix):
     Returns
     -------
     lon : Float[Array, "..."]
-        Celestial longitude in radians, wrapped into $[0, \pi)$.
+        Celestial longitude in radians, wrapped into $[0, 2\pi)$.
     lat : Float[Array, "..."]
         Celestial latitude in radians.
     """
@@ -183,7 +211,7 @@ class JAXWCS:
     $$
     \boldsymbol{q}
     =
-    \mathrm{PC}\,\mathrm{diag}(\mathrm{CDELT})
+    \mathrm{diag}(\mathrm{CDELT})\,\mathrm{PC}
     (\boldsymbol{p}-\mathrm{CRPIX}),
     $$
 
@@ -209,20 +237,32 @@ class JAXWCS:
         Linear transformation matrix relating pixel offsets to intermediate
         world-coordinate offsets.
     lonpole : Float[Array, ""]
-        Native longitude of the celestial north pole, in degrees, following
-        the FITS WCS convention.
+        Native longitude of the celestial north pole (LONPOLE), in degrees,
+        following the FITS WCS convention. Defaults to NaN, meaning the FITS
+        default for the projection is used: 0 if the CRVAL latitude is
+        at least `theta0`, otherwise 180 (Calabretta & Greisen 2002, sect. 2.4).
+        See `_lonpole`.
     latpole : Float[Array, ""]
-        Native latitude of the celestial north pole, in degrees, following
-        the FITS WCS convention.
+        Latitude of the pole (LATPOLE), in degrees, following the FITS WCS
+        convention. After WCSLIB has resolved it this is also the native
+        latitude of the celestial north pole. Only used by projections whose
+        reference point is not the native pole (such as CAR), zenithal
+        projections such as TAN take it from the CRVAL latitude instead.
     radesys : str
         Celestial reference frame, such as `ICRS` or `FK5`.
-    equinox : Optional[float]
+    equinox : float
         Equinox of the celestial reference frame, in years. Used for
-        frames such as FK5 for which an equinox is applicable. If None,
+        frames such as FK5 for which an equinox is applicable. If NaN,
         no equinox is explicitly specified.
 
     Class Attributes
     ----------------
+    projection : str
+        FITS projection code of the subclass, such as ``"CAR"`` or ``"TAN"``.
+    theta0 : float
+        Native latitude of the reference point in degrees, set by each
+        subclass: 0 for CAR and 90 for zenithal projections such as TAN.
+        Used for the default LONPOLE.
     _registry : dict[str, type[JAXWCS]]
         Registry mapping FITS projection codes to their corresponding
         JAX-compatible WCS implementations.
@@ -232,12 +272,27 @@ class JAXWCS:
     crval: Float[Array, "2"]
     cdelt: Float[Array, "2"]
     pc: Float[Array, "2 2"]
-    lonpole: float = 180.0
+    lonpole: float = jnp.nan  # NaN = use the FITS default for this projection
+    theta0: ClassVar[float]  # native latitude of the reference point (deg)
     latpole: float = 90.0
     radesys: str = "ICRS"
     equinox: float = jnp.nan
 
     _registry: ClassVar[dict[str, type["JAXWCS"]]] = {}
+
+    def _lonpole(self):
+        """
+        LONPOLE with the FITS default applied if it was not specified (NaN).
+
+        Returns
+        -------
+        Float[Array, ""]
+            LONPOLE in degrees: `lonpole` if it is set, otherwise 0 if the
+            CRVAL latitude is at least `theta0` and 180 if it is not
+            (Calabretta & Greisen 2002, sect. 2.4).
+        """
+        default = jnp.where(self.crval[1] >= self.theta0, 0.0, 180.0)
+        return jnp.where(jnp.isnan(self.lonpole), default, self.lonpole)
 
     @classmethod
     def register_projection(cls, *codes: str):
@@ -380,11 +435,11 @@ class JAXWCS:
         pc = np.asarray(self.pc)
         wcs.wcs.cd = np.diag(cdelt) @ pc
 
-        wcs.wcs.lonpole = float(self.lonpole)
+        wcs.wcs.lonpole = float(self._lonpole())
         wcs.wcs.latpole = float(self.latpole)
         wcs.wcs.radesys = self.radesys
 
-        if self.equinox is not None:
+        if not np.isnan(self.equinox):
             wcs.wcs.equinox = float(self.equinox)
 
         return wcs.to_header(relax=True)
@@ -462,7 +517,7 @@ class JAXWCS:
 @JAXWCS.register_projection("CAR")
 @dataclass(frozen=True)
 class JAXCAR(JAXWCS):
-    """
+    r"""
     JAX implementation of the CAR celestial map projection.
 
     This implementation transforms between celestial and native spherical
@@ -476,10 +531,14 @@ class JAXCAR(JAXWCS):
     This implementation does not support SIP distortions or distortion
     lookup tables.
 
-    See `JACWCS` for details on the attributes of this class.
+    The reference point (CRVAL) is native $(\phi_0, \theta_0) = (0, 0)$
+    and the celestial north pole sits at native (LONPOLE, LATPOLE).
+
+    See `JAXWCS` for details on the attributes of this class.
     """
 
     projection: ClassVar[str] = "CAR"
+    theta0: ClassVar[float] = 0.0  # native latitude of the reference point (deg)
 
     @classmethod
     def _from_astropy(cls, wcs: WCS) -> "JAXCAR":
@@ -554,8 +613,9 @@ class JAXCAR(JAXWCS):
         """
         return _native_to_celestial_matrix(
             jnp.deg2rad(self.crval),
-            jnp.deg2rad(self.lonpole),
+            jnp.deg2rad(self._lonpole()),
             jnp.deg2rad(self.latpole),
+            projection=self.projection,
         )
 
     @jax.jit
@@ -573,7 +633,7 @@ class JAXCAR(JAXWCS):
         $$
         \mathrm{intermediate}
         =
-        \mathrm{PC}\,\mathrm{diag}(\mathrm{CDELT})
+        \mathrm{diag}(\mathrm{CDELT})\,\mathrm{PC}
         (\mathrm{pixel}-\mathrm{CRPIX}).
         $$
 
@@ -621,7 +681,7 @@ class JAXCAR(JAXWCS):
         $$
         \mathrm{intermediate}
         =
-        \mathrm{PC}\,\mathrm{diag}(\mathrm{CDELT})
+        \mathrm{diag}(\mathrm{CDELT})\,\mathrm{PC}
         (\mathrm{pixel}-\mathrm{CRPIX}).
         $$
 
@@ -641,20 +701,15 @@ class JAXCAR(JAXWCS):
         Returns
         -------
         ra_rad : Float[Array, "..."]
-            Right ascension in radians, wrapped into $[0, 2\\pi)$.
+            Right ascension in radians, wrapped into $[0, 2\pi)$.
         dec_rad : Float[Array, "..."]
             Declination in radians.
-
-        Notes
-        -----
         """
         pix = jnp.stack((xpix, ypix), axis=0)
 
         offset = pix + 1.0 - self.crpix.reshape((2,) + (1,) * xpix.ndim)
-        intermediate = jnp.einsum(
-            "ij,j...->i...",
-            self.pc,
-            offset * self.cdelt.reshape((2,) + (1,) * xpix.ndim),
+        intermediate = self.cdelt.reshape((2,) + (1,) * xpix.ndim) * jnp.einsum(
+            "ij,j...->i...", self.pc, offset
         )
 
         phi = jnp.deg2rad(intermediate[0])
@@ -670,11 +725,16 @@ class JAXCAR(JAXWCS):
 @JAXWCS.register_projection("TAN")
 @dataclass(frozen=True)
 class JAXTAN(JAXWCS):
-    """
+    r"""
     JAX implementation of the TAN celestial map projection.
 
+    TAN is a zenithal projection: the reference point (CRVAL) is the native
+    pole, $(\phi_0, \theta_0) = (0, 90^\circ)$, and the celestial north pole
+    sits at native $(\mathrm{LONPOLE}, \delta_0)$ where $\delta_0$ is the CRVAL
+    latitude. LATPOLE is therefore not used.
+
     Celestial coordinates are transformed into native spherical coordinates
-    using the rotation matrix defined by CRVAL, LONPOLE, and LATPOLE.
+    using the rotation matrix defined by CRVAL and LONPOLE.
     The native spherical coordinates are then projected onto the tangent
     plane using the gnomonic projection.
 
@@ -683,9 +743,12 @@ class JAXTAN(JAXWCS):
 
     This implementation does not support SIP distortions or distortion
     lookup tables.
+
+    See `JAXWCS` for details on the attributes of this class.
     """
 
     projection: ClassVar[str] = "TAN"
+    theta0: ClassVar[float] = 90.0  # native latitude of the reference point (deg)
 
     @classmethod
     def _from_astropy(cls, wcs: WCS) -> "JAXTAN":
@@ -722,7 +785,11 @@ class JAXTAN(JAXWCS):
         ):
             raise NotImplementedError("TAN distortion terms are not supported.")
 
-        return cls(**cls._from_astropy_parameters(wcs))
+        params = cls._from_astropy_parameters(wcs)
+        # Zenithal: the celestial pole is at native latitude delta0, store that
+        # so that to_header writes the LATPOLE that is actually used
+        params["latpole"] = params["crval"][1]
+        return cls(**params)
 
     def _rotation_matrix(self):
         """
@@ -731,28 +798,42 @@ class JAXTAN(JAXWCS):
         Returns
         -------
         Float[Array, "3 3"]
-            Rotation matrix constructed from CRVAL, LONPOLE, and LATPOLE.
+            Rotation matrix constructed from CRVAL and LONPOLE.
         """
+        _, delta0 = jnp.deg2rad(self.crval)
         return _native_to_celestial_matrix(
             jnp.deg2rad(self.crval),
-            jnp.deg2rad(self.lonpole),
-            jnp.deg2rad(self.latpole),
+            jnp.deg2rad(self._lonpole()),
+            delta0,  # Celestial pole sits at native latitude delta0 regardless of LATPOLE
+            projection=self.projection,
         )
 
     @jax.jit
     def world_to_pixel(
         self, ra_rad: Float[Array, "..."], dec_rad: Float[Array, "..."]
     ) -> tuple[Float[Array, "..."], Float[Array, "..."]]:
-        """
+        r"""
         Convert celestial coordinates to TAN pixel coordinates.
 
         Celestial coordinates are first rotated into the native coordinate
         system. The native spherical coordinates are then projected onto
         the tangent plane using the gnomonic projection.
 
-        The linear transformation follows the FITS convention: `intermediate = PC @ diag(CDELT) @ (pixel - CRPIX)`
+        The linear transformation follows the FITS convention:
 
+        $$
+        \mathrm{intermediate}
+        =
+        \mathrm{diag}(\mathrm{CDELT})\,\mathrm{PC}
+        (\mathrm{pixel}-\mathrm{CRPIX}),
+        $$
+
+        which is inverted to get the pixel coordinates.
         Pixel coordinates are returned in zero-based convention.
+
+        Points more than 90 degrees from the reference point (behind the
+        tangent plane) have no TAN projection and are not flagged, they
+        return finite but meaningless pixel coordinates.
 
         Parameters
         ----------
@@ -785,13 +866,21 @@ class JAXTAN(JAXWCS):
     def pixel_to_world(
         self, xpix: Float[Array, "..."], ypix: Float[Array, "..."]
     ) -> tuple[Float[Array, "..."], Float[Array, "..."]]:
-        """
+        r"""
         Convert TAN pixel coordinates to celestial coordinates.
 
         Pixel coordinates are first transformed into intermediate
-        tangent-plane coordinates. The inverse gnomonic projection then
-        produces native spherical coordinates, which are rotated into
-        celestial coordinates.
+        tangent-plane coordinates:
+
+        $$
+        \mathrm{intermediate}
+        =
+        \mathrm{diag}(\mathrm{CDELT})\,\mathrm{PC}
+        (\mathrm{pixel}-\mathrm{CRPIX}).
+        $$
+
+        The inverse gnomonic projection then produces native spherical
+        coordinates, which are rotated into celestial coordinates.
 
         Parameters
         ----------
@@ -803,16 +892,14 @@ class JAXTAN(JAXWCS):
         Returns
         -------
         ra_rad : Float[Array, "..."]
-            Right ascension in radians, wrapped into [0, 2*pi).
+            Right ascension in radians, wrapped into $[0, 2\pi)$.
         dec_rad : Float[Array, "..."]
             Declination in radians.
         """
         pix = jnp.stack((xpix, ypix), axis=0)
         offset = pix + 1.0 - self.crpix.reshape((2,) + (1,) * xpix.ndim)
-        intermediate = jnp.einsum(
-            "ij,j...->i...",
-            self.pc,
-            offset * self.cdelt.reshape((2,) + (1,) * xpix.ndim),
+        intermediate = self.cdelt.reshape((2,) + (1,) * xpix.ndim) * jnp.einsum(
+            "ij,j...->i...", self.pc, offset
         )
         x = jnp.deg2rad(intermediate[0])
         y = jnp.deg2rad(intermediate[1])
