@@ -65,6 +65,12 @@ TAN_CASES = [
     ("high_dec", dict(crval=[40.0, 75.0], cdelt=2.5 / ARCSEC, crpix=[50.5, 40.5], shape=(100, 80))),
     ("south", dict(crval=[300.0, -60.0], cdelt=2.5 / ARCSEC, crpix=[50.5, 40.5], shape=(100, 80))),
     ("ra_wrap", dict(crval=[0.01, 5.0], cdelt=2.5 / ARCSEC, crpix=[50.5, 40.5], shape=(100, 80))),
+    # Maps centered exactly on a celestial pole: wcslib uses LONPOLE = 0 at the
+    # north pole, and the rotation construction is at its most degenerate here
+    ("north_pole", dict(crval=[30.0, 90.0], cdelt=2.5 / ARCSEC, crpix=[50.5, 50.5], shape=(100, 100))),
+    ("south_pole", dict(crval=[30.0, -90.0], cdelt=2.5 / ARCSEC, crpix=[50.5, 50.5], shape=(100, 100))),
+    # Reference pixel on a pixel center, so one pixel sits exactly on the pole
+    ("north_pole_on_pixel", dict(crval=[30.0, 90.0], cdelt=2.5 / ARCSEC, crpix=[51.0, 51.0], shape=(100, 100))),
     ("wide_field", dict(crval=[175.7, 15.5], cdelt=30 / ARCSEC, crpix=[60.5, 60.5], shape=(120, 120))),
     (
         "crpix_off_map",
